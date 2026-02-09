@@ -61,6 +61,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           <span className="brand-title">OEDIV</span>
           <span className="brand-subtitle">ExpenseFlow</span>
         </div>
+        <h2>ExpenseFlow</h2>
         <nav>
           <Link to="/dashboard">Dashboard</Link>
           <Link to="/my-requests">My Requests</Link>
@@ -138,6 +139,7 @@ function Dashboard() {
       <div className="grid">
         <div className="card">
           <h3>Welcome to OEDIV ExpenseFlow</h3>
+          <h3>Welcome</h3>
           <p>{auth.user?.email}</p>
           <p>Role: {auth.user?.role}</p>
         </div>
@@ -321,6 +323,9 @@ function MyRequests() {
           </form>
         </div>
       )}
+  return (
+    <div>
+      <h1>My Requests</h1>
       <RequestsTable items={requests} />
     </div>
   );
