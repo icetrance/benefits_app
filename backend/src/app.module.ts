@@ -23,7 +23,6 @@ import { CategoryController } from './categories/category.controller';
     ReceiptController,
     ReportsController,
     CategoryController
-    ReportsController
   ],
   providers: [
     PrismaService,
@@ -33,7 +32,6 @@ import { CategoryController } from './categories/category.controller';
     LineItemService,
     ReceiptService,
     CategoryService
-    ReceiptService
   ]
 })
 export class AppModule {}

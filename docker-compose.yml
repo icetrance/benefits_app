@@ -28,7 +28,7 @@ services:
   frontend:
     build: ./frontend
     environment:
-      VITE_API_BASE: http://localhost:3000
+      VITE_API_BASE: http://91.98.41.9:3000
     ports:
       - '8080:80'
     depends_on:

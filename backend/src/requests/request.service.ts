@@ -5,6 +5,14 @@ import { RequestStatus, Role, ApprovalActionType } from '@prisma/client';
 import { CreateRequestDto, UpdateRequestDto } from './request.dto';
 import { NotificationService } from '../notifications/notification.service';
 
+const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.RETURNED];
+const REVIEW_STATUSES: RequestStatus[] = [RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED];
+const WITHDRAWABLE_STATUSES: RequestStatus[] = [RequestStatus.SUBMITTED, RequestStatus.UNDER_REVIEW];
+const FINANCE_PAYABLE_STATUSES: RequestStatus[] = [
+  RequestStatus.APPROVED,
+  RequestStatus.PAYMENT_PROCESSING
+];
+
 @Injectable()
 export class RequestService {
   constructor(
@@ -42,6 +50,9 @@ export class RequestService {
         reason: dto.reason,
         currency: dto.currency,
         totalAmount: dto.totalAmount,
+        invoiceNumber: dto.invoiceNumber,
+        invoiceDate: dto.invoiceDate ? new Date(dto.invoiceDate) : undefined,
+        supplier: dto.supplier,
         status: RequestStatus.DRAFT
       }
     });
@@ -59,10 +70,10 @@ export class RequestService {
     if (role === Role.EMPLOYEE) {
       return this.prisma.expenseRequest.findMany({
         where: { employeeId: userId },
-        include: { category: true }
+        include: { category: true, employee: true, actions: true }
       });
     }
-    return this.prisma.expenseRequest.findMany({ include: { category: true } });
+    return this.prisma.expenseRequest.findMany({ include: { category: true, employee: true, actions: true } });
   }
 
   async getRequest(userId: string, role: Role, id: string) {
@@ -81,30 +92,36 @@ export class RequestService {
     if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can edit');
     }
-    if (![RequestStatus.DRAFT, RequestStatus.RETURNED].includes(request.status)) {
+    if (!EDITABLE_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request cannot be edited in current status');
     }
+    const invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : undefined;
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
-      data: { ...dto }
+      data: { ...dto, invoiceDate }
     });
     await this.auditService.recordEvent({
       actorId: userId,
       entityType: 'ExpenseRequest',
       entityId: id,
       eventType: 'UPDATE',
-      eventData: dto
+      eventData: { ...dto } as Record<string, unknown>
     });
     return updated;
   }
 
   private async validateSubmission(id: string) {
     const request = await this.getRequestOrThrow(id);
-    if (!request.categoryId || !request.reason || request.lineItems.length === 0 || request.totalAmount <= 0) {
+    if (
+      !request.categoryId ||
+      !request.reason ||
+      !request.currency ||
+      request.totalAmount <= 0 ||
+      !request.invoiceNumber ||
+      !request.invoiceDate ||
+      !request.supplier
+    ) {
       throw new BadRequestException('Request is missing required details');
-    }
-    if (request.category.requiresReceipt && request.receipts.length === 0) {
-      throw new BadRequestException('Receipt required for this category');
     }
     return request;
   }
@@ -114,7 +131,7 @@ export class RequestService {
     if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can submit');
     }
-    if (![RequestStatus.DRAFT, RequestStatus.RETURNED].includes(request.status)) {
+    if (!EDITABLE_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request cannot be submitted');
     }
     await this.validateSubmission(id);
@@ -160,12 +177,37 @@ export class RequestService {
     return { ...submitted, status: underReview.status };
   }
 
+  async withdrawRequest(userId: string, role: Role, id: string) {
+    const request = await this.getRequestOrThrow(id);
+    if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
+      throw new ForbiddenException('Only owner can withdraw');
+    }
+    if (!WITHDRAWABLE_STATUSES.includes(request.status)) {
+      throw new BadRequestException('Request cannot be withdrawn in current status');
+    }
+    const updated = await this.prisma.expenseRequest.update({
+      where: { id },
+      data: { status: RequestStatus.DRAFT, submittedAt: null }
+    });
+    await this.auditService.recordEvent({
+      actorId: userId,
+      entityType: 'ExpenseRequest',
+      entityId: id,
+      eventType: 'WITHDRAW',
+      eventData: { fromStatus: request.status, toStatus: RequestStatus.DRAFT }
+    });
+    return updated;
+  }
+
   async approveRequest(actorId: string, role: Role, id: string, comment?: string) {
     if (role !== Role.APPROVER) {
       throw new ForbiddenException('Only approvers can approve');
     }
+    if (!comment) {
+      throw new BadRequestException('Comment required');
+    }
     const request = await this.getRequestOrThrow(id);
-    if (![RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED].includes(request.status)) {
+    if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
     const updated = await this.prisma.expenseRequest.update({
@@ -205,7 +247,7 @@ export class RequestService {
       throw new BadRequestException('Comment required');
     }
     const request = await this.getRequestOrThrow(id);
-    if (![RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED].includes(request.status)) {
+    if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
     const updated = await this.prisma.expenseRequest.update({
@@ -245,7 +287,7 @@ export class RequestService {
       throw new BadRequestException('Comment required');
     }
     const request = await this.getRequestOrThrow(id);
-    if (![RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED].includes(request.status)) {
+    if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
     const updated = await this.prisma.expenseRequest.update({
@@ -318,8 +360,8 @@ export class RequestService {
       throw new ForbiddenException('Only finance can mark paid');
     }
     const request = await this.getRequestOrThrow(id);
-    if (request.status !== RequestStatus.PAYMENT_PROCESSING) {
-      throw new BadRequestException('Request must be in processing');
+    if (!FINANCE_PAYABLE_STATUSES.includes(request.status)) {
+      throw new BadRequestException('Request must be approved');
     }
     const updated = await this.prisma.expenseRequest.update({
       where: { id },

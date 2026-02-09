@@ -4,6 +4,8 @@ import { AuditService } from '../audit/audit.service';
 import { RequestStatus, Role } from '@prisma/client';
 import { CreateLineItemDto, UpdateLineItemDto } from './line-item.dto';
 
+const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.RETURNED];
+
 @Injectable()
 export class LineItemService {
   constructor(private readonly prisma: PrismaService, private readonly auditService: AuditService) {}
@@ -20,7 +22,7 @@ export class LineItemService {
     if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can edit');
     }
-    if (![RequestStatus.DRAFT, RequestStatus.RETURNED].includes(request.status)) {
+    if (!EDITABLE_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request not editable');
     }
   }

@@ -64,6 +64,9 @@ model ExpenseRequest {
   status         RequestStatus       @default(DRAFT)
   currency       String
   totalAmount    Float
+  invoiceNumber  String?
+  invoiceDate    DateTime?
+  supplier       String?
   submittedAt    DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt

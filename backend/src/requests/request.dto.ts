@@ -1,17 +1,32 @@
-import { IsString, IsNumber, IsUUID, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional, IsNotEmpty } from 'class-validator';
 
 export class CreateRequestDto {
   @IsUUID()
-  categoryId: string;
+  @IsNotEmpty()
+  categoryId!: string;
 
   @IsString()
-  reason: string;
+  @IsNotEmpty()
+  reason!: string;
 
   @IsString()
-  currency: string;
+  @IsNotEmpty()
+  currency!: string;
 
   @IsNumber()
-  totalAmount: number;
+  totalAmount!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  invoiceNumber!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  invoiceDate!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  supplier!: string;
 }
 
 export class UpdateRequestDto {
@@ -30,6 +45,18 @@ export class UpdateRequestDto {
   @IsOptional()
   @IsNumber()
   totalAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceDate?: string;
+
+  @IsOptional()
+  @IsString()
+  supplier?: string;
 }
 
 export class ActionCommentDto {

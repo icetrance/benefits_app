@@ -6,6 +6,8 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.RETURNED];
+
 @Injectable()
 export class ReceiptService {
   constructor(private readonly prisma: PrismaService, private readonly auditService: AuditService) {}
@@ -14,7 +16,7 @@ export class ReceiptService {
     if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can upload');
     }
-    if (![RequestStatus.DRAFT, RequestStatus.RETURNED].includes(request.status)) {
+    if (!EDITABLE_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request not editable');
     }
   }

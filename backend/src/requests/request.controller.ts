@@ -39,6 +39,11 @@ export class RequestController {
     return this.requestService.submitRequest(user.sub, user.role as any, id);
   }
 
+  @Post(':id/withdraw')
+  async withdraw(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.requestService.withdrawRequest(user.sub, user.role as any, id);
+  }
+
   @Post(':id/approve')
   async approve(
     @CurrentUser() user: AuthenticatedUser,
