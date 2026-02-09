@@ -11,6 +11,8 @@ import { ReceiptService } from './receipts/receipt.service';
 import { ReceiptController } from './receipts/receipt.controller';
 import { ReportsController } from './reports/reports.controller';
 import { NotificationService } from './notifications/notification.service';
+import { CategoryService } from './categories/category.service';
+import { CategoryController } from './categories/category.controller';
 
 @Module({
   imports: [AuthModule],
@@ -19,6 +21,8 @@ import { NotificationService } from './notifications/notification.service';
     AuditController,
     LineItemController,
     ReceiptController,
+    ReportsController,
+    CategoryController
     ReportsController
   ],
   providers: [
@@ -27,6 +31,8 @@ import { NotificationService } from './notifications/notification.service';
     NotificationService,
     RequestService,
     LineItemService,
+    ReceiptService,
+    CategoryService
     ReceiptService
   ]
 })

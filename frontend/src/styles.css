@@ -27,6 +27,24 @@ aside h2 {
   margin: 0;
 }
 
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brand-title {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.9rem;
+  color: #93c5fd;
+}
+
+.brand-subtitle {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
 nav {
   display: flex;
   flex-direction: column;
@@ -70,6 +88,13 @@ input {
   border: 1px solid #d1d5db;
 }
 
+select {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+}
+
 button {
   padding: 10px 16px;
   border-radius: 8px;
@@ -87,6 +112,28 @@ button.secondary {
 
 .error {
   color: #dc2626;
+}
+
+.muted {
+  color: #6b7280;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.form-actions {
+  grid-column: 1 / -1;
 }
 
 table {

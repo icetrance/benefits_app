@@ -57,6 +57,10 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="layout">
       <aside>
+        <div className="brand">
+          <span className="brand-title">OEDIV</span>
+          <span className="brand-subtitle">ExpenseFlow</span>
+        </div>
         <h2>ExpenseFlow</h2>
         <nav>
           <Link to="/dashboard">Dashboard</Link>
@@ -134,6 +138,7 @@ function Dashboard() {
       <h1>Dashboard</h1>
       <div className="grid">
         <div className="card">
+          <h3>Welcome to OEDIV ExpenseFlow</h3>
           <h3>Welcome</h3>
           <p>{auth.user?.email}</p>
           <p>Role: {auth.user?.role}</p>
@@ -200,11 +205,124 @@ function MyRequests() {
   const auth = useAuth();
   const fetcher = useAuthedFetch(auth.token);
   const [requests, setRequests] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [formState, setFormState] = useState({
+    categoryId: '',
+    reason: '',
+    currency: 'USD',
+    totalAmount: ''
+  });
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!auth.token) return;
     fetcher('/requests').then(setRequests).catch(() => setRequests([]));
   }, [auth.token, fetcher]);
 
+  useEffect(() => {
+    if (!auth.token) return;
+    fetcher('/categories').then(setCategories).catch(() => setCategories([]));
+  }, [auth.token, fetcher]);
+
+  const onCreate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFormError('');
+    if (!formState.categoryId || !formState.reason || !formState.totalAmount) {
+      setFormError('Please complete all required fields.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`${apiBase}/requests`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          categoryId: formState.categoryId,
+          reason: formState.reason,
+          currency: formState.currency,
+          totalAmount: Number(formState.totalAmount)
+        })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to create request');
+      }
+      const created = await response.json();
+      setRequests((prev) => [created, ...prev]);
+      setShowCreate(false);
+      setFormState({ categoryId: '', reason: '', currency: 'USD', totalAmount: '' });
+    } catch (error) {
+      setFormError('Unable to create request. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1>My Requests</h1>
+          <p className="muted">Manage your drafts and submitted expenses.</p>
+        </div>
+        <button onClick={() => setShowCreate((prev) => !prev)}>
+          {showCreate ? 'Close' : 'Create Request'}
+        </button>
+      </div>
+      {showCreate && (
+        <div className="card">
+          <h3>Create a new request</h3>
+          <form onSubmit={onCreate} className="form-grid">
+            <label>
+              Category
+              <select
+                value={formState.categoryId}
+                onChange={(event) => setFormState({ ...formState, categoryId: event.target.value })}
+              >
+                <option value="">Select a category</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Reason
+              <input
+                value={formState.reason}
+                onChange={(event) => setFormState({ ...formState, reason: event.target.value })}
+              />
+            </label>
+            <label>
+              Currency
+              <input
+                value={formState.currency}
+                onChange={(event) => setFormState({ ...formState, currency: event.target.value })}
+              />
+            </label>
+            <label>
+              Total amount
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formState.totalAmount}
+                onChange={(event) => setFormState({ ...formState, totalAmount: event.target.value })}
+              />
+            </label>
+            {formError && <p className="error">{formError}</p>}
+            <div className="form-actions">
+              <button type="submit" disabled={saving}>
+                {saving ? 'Creating...' : 'Create Draft'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
   return (
     <div>
       <h1>My Requests</h1>
