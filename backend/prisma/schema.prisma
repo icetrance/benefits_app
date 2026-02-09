@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  EMPLOYEE
+  APPROVER
+  FINANCE_ADMIN
+  SYSTEM_ADMIN
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  RETURNED
+  REJECTED
+  APPROVED
+  PAYMENT_PROCESSING
+  PAID
+}
+
+enum ApprovalActionType {
+  SUBMIT
+  APPROVE
+  REJECT
+  RETURN
+  FINANCE_PROCESS
+  PAID
+}
+
+model User {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  passwordHash String
+  fullName     String
+  role         Role
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  requests     ExpenseRequest[]  @relation("EmployeeRequests")
+  approvals    ApprovalAction[]  @relation("ApprovalActor")
+  auditLogs    AuditLog[]        @relation("AuditActor")
+}
+
+model ExpenseCategory {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  requiresReceipt Boolean          @default(false)
+  active          Boolean          @default(true)
+  requests        ExpenseRequest[]
+}
+
+model ExpenseRequest {
+  id             String              @id @default(uuid())
+  requestNumber  String              @unique
+  employeeId     String
+  categoryId     String
+  reason         String
+  status         RequestStatus       @default(DRAFT)
+  currency       String
+  totalAmount    Float
+  submittedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  employee       User                @relation("EmployeeRequests", fields: [employeeId], references: [id])
+  category       ExpenseCategory     @relation(fields: [categoryId], references: [id])
+  lineItems      ExpenseLineItem[]
+  receipts       ReceiptAttachment[]
+  actions        ApprovalAction[]
+}
+
+model ExpenseLineItem {
+  id          String         @id @default(uuid())
+  requestId   String
+  date        DateTime
+  description String
+  amount      Float
+  currency    String
+  request     ExpenseRequest @relation(fields: [requestId], references: [id])
+}
+
+model ReceiptAttachment {
+  id          String         @id @default(uuid())
+  requestId   String
+  filename    String
+  mimeType    String
+  size        Int
+  sha256      String
+  storagePath String
+  uploadedAt  DateTime       @default(now())
+  request     ExpenseRequest @relation(fields: [requestId], references: [id])
+}
+
+model ApprovalAction {
+  id         String             @id @default(uuid())
+  requestId  String
+  actorId    String
+  actionType ApprovalActionType
+  fromStatus RequestStatus
+  toStatus   RequestStatus
+  comment    String?
+  createdAt  DateTime           @default(now())
+  request    ExpenseRequest     @relation(fields: [requestId], references: [id])
+  actor      User               @relation("ApprovalActor", fields: [actorId], references: [id])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  entityType   String
+  entityId     String
+  actorId      String
+  eventType    String
+  eventDataJson String
+  prevHash     String
+  hash         String
+  createdAt    DateTime @default(now())
+  actor        User     @relation("AuditActor", fields: [actorId], references: [id])
+}
