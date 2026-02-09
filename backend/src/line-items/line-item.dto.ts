@@ -2,28 +2,28 @@ import { IsDateString, IsNumber, IsString } from 'class-validator';
 
 export class CreateLineItemDto {
   @IsDateString()
-  date: string;
+  date!: string;
 
   @IsString()
-  description: string;
+  description!: string;
 
   @IsNumber()
-  amount: number;
+  amount!: number;
 
   @IsString()
-  currency: string;
+  currency!: string;
 }
 
 export class UpdateLineItemDto {
   @IsDateString()
-  date: string;
+  date!: string;
 
   @IsString()
-  description: string;
+  description!: string;
 
   @IsNumber()
-  amount: number;
+  amount!: number;
 
   @IsString()
-  currency: string;
+  currency!: string;
 }

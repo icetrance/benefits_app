@@ -54,6 +54,7 @@ function useAuth() {
 function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const auth = useAuth();
+  const role = auth.user?.role;
   return (
     <div className="layout">
       <aside>
@@ -64,10 +65,18 @@ function Layout({ children }: { children: React.ReactNode }) {
         <h2>ExpenseFlow</h2>
         <nav>
           <Link to="/dashboard">Dashboard</Link>
-          <Link to="/my-requests">My Requests</Link>
-          <Link to="/approval-queue">Approval Queue</Link>
-          <Link to="/finance-queue">Finance Queue</Link>
-          <Link to="/audit">Audit Verification</Link>
+          {(role === 'EMPLOYEE' || role === 'APPROVER' || role === 'SYSTEM_ADMIN') && (
+            <Link to="/my-requests">My Requests</Link>
+          )}
+          {(role === 'APPROVER' || role === 'SYSTEM_ADMIN') && (
+            <Link to="/approval-queue">Approval Queue</Link>
+          )}
+          {(role === 'FINANCE_ADMIN' || role === 'SYSTEM_ADMIN') && (
+            <Link to="/finance-queue">Finance Queue</Link>
+          )}
+          {(role === 'SYSTEM_ADMIN' || role === 'APPROVER' || role === 'FINANCE_ADMIN') && (
+            <Link to="/audit">Audit Verification</Link>
+          )}
         </nav>
         <button
           className="secondary"
@@ -156,15 +165,25 @@ function Dashboard() {
   );
 }
 
-function RequestsTable({ items }: { items: any[] }) {
+function RequestsTable({
+  items,
+  actions
+}: {
+  items: any[];
+  actions?: (item: any) => React.ReactNode;
+}) {
   return (
     <table>
       <thead>
         <tr>
           <th>Request #</th>
           <th>Status</th>
+          <th>Invoice #</th>
+          <th>Invoice Date</th>
+          <th>Supplier</th>
           <th>Category</th>
           <th>Total</th>
+          {actions && <th>Actions</th>}
         </tr>
       </thead>
       <tbody>
@@ -173,16 +192,69 @@ function RequestsTable({ items }: { items: any[] }) {
             <td>
               <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
             </td>
-            <td>{item.status}</td>
+            <td>
+              <StatusBadge status={item.status} />
+            </td>
+            <td>{item.invoiceNumber || '-'}</td>
+            <td>{formatDate(item.invoiceDate)}</td>
+            <td>{item.supplier || '-'}</td>
             <td>{item.category?.name}</td>
             <td>
               {item.currency} {item.totalAmount}
             </td>
+            {actions && <td>{actions(item)}</td>}
           </tr>
         ))}
       </tbody>
     </table>
   );
+}
+
+const HISTORY_STATUSES = new Set(['PAID', 'REJECTED', 'RETURNED', 'APPROVED']);
+
+function statusClass(status?: string) {
+  switch (status) {
+    case 'REJECTED':
+      return 'status-red';
+    case 'UNDER_REVIEW':
+      return 'status-yellow';
+    case 'PAID':
+      return 'status-green';
+    default:
+      return 'status-default';
+  }
+}
+
+function formatStatus(status?: string) {
+  if (!status) return '-';
+  return status.replace(/_/g, ' ');
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  return <span className={`status-pill ${statusClass(status)}`}>{formatStatus(status)}</span>;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString();
+}
+
+function monthKey(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getLatestAction(request: any, types: string[], actorId?: string) {
+  const actions = (request.actions || []).filter(
+    (action: any) =>
+      types.includes(action.actionType) && (actorId ? action.actorId === actorId : true)
+  );
+  actions.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return actions[0];
 }
 
 function useAuthedFetch(authToken: string) {
@@ -201,17 +273,41 @@ function useAuthedFetch(authToken: string) {
   }, [authToken]);
 }
 
+function useAuthedMutation(authToken: string) {
+  return useMemo(() => {
+    return async (path: string, body?: Record<string, unknown>) => {
+      const response = await fetch(`${apiBase}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      if (!response.ok) {
+        throw new Error('Request failed');
+      }
+      return response.json();
+    };
+  }, [authToken]);
+}
+
 function MyRequests() {
   const auth = useAuth();
   const fetcher = useAuthedFetch(auth.token);
+  const mutate = useAuthedMutation(auth.token);
   const [requests, setRequests] = useState<any[]>([]);
+  const [historyMonth, setHistoryMonth] = useState('all');
   const [categories, setCategories] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [formState, setFormState] = useState({
     categoryId: '',
     reason: '',
     currency: 'USD',
-    totalAmount: ''
+    totalAmount: '',
+    invoiceNumber: '',
+    invoiceDate: '',
+    supplier: ''
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -244,7 +340,10 @@ function MyRequests() {
           categoryId: formState.categoryId,
           reason: formState.reason,
           currency: formState.currency,
-          totalAmount: Number(formState.totalAmount)
+          totalAmount: Number(formState.totalAmount),
+          invoiceNumber: formState.invoiceNumber || undefined,
+          invoiceDate: formState.invoiceDate || undefined,
+          supplier: formState.supplier || undefined
         })
       });
       if (!response.ok) {
@@ -253,13 +352,56 @@ function MyRequests() {
       const created = await response.json();
       setRequests((prev) => [created, ...prev]);
       setShowCreate(false);
-      setFormState({ categoryId: '', reason: '', currency: 'USD', totalAmount: '' });
+      setFormState({
+        categoryId: '',
+        reason: '',
+        currency: 'USD',
+        totalAmount: '',
+        invoiceNumber: '',
+        invoiceDate: '',
+        supplier: ''
+      });
     } catch (error) {
       setFormError('Unable to create request. Please try again.');
     } finally {
       setSaving(false);
     }
   };
+
+  const refreshRequests = async () => {
+    if (!auth.token) return;
+    fetcher('/requests').then(setRequests).catch(() => setRequests([]));
+  };
+
+  const onSubmitRequest = async (id: string) => {
+    await mutate(`/requests/${id}/submit`);
+    await refreshRequests();
+  };
+
+  const onWithdrawRequest = async (id: string) => {
+    await mutate(`/requests/${id}/withdraw`);
+    await refreshRequests();
+  };
+
+  if (auth.user?.role === 'FINANCE_ADMIN') {
+    return (
+      <div>
+        <h1>My Requests</h1>
+        <p className="error">Finance users do not have access to personal requests.</p>
+      </div>
+    );
+  }
+
+  const openRequests = requests.filter((item) => !HISTORY_STATUSES.has(item.status));
+  const historyRequests = requests.filter((item) => HISTORY_STATUSES.has(item.status));
+  const historyMonths = Array.from(
+    new Set(historyRequests.map((item) => monthKey(item.submittedAt)).filter(Boolean))
+  ).sort()
+    .reverse();
+  const filteredHistory =
+    historyMonth === 'all'
+      ? historyRequests
+      : historyRequests.filter((item) => monthKey(item.submittedAt) === historyMonth);
 
   return (
     <div>
@@ -281,6 +423,7 @@ function MyRequests() {
               <select
                 value={formState.categoryId}
                 onChange={(event) => setFormState({ ...formState, categoryId: event.target.value })}
+                required
               >
                 <option value="">Select a category</option>
                 {categories.map((category) => (
@@ -295,6 +438,7 @@ function MyRequests() {
               <input
                 value={formState.reason}
                 onChange={(event) => setFormState({ ...formState, reason: event.target.value })}
+                required
               />
             </label>
             <label>
@@ -302,6 +446,7 @@ function MyRequests() {
               <input
                 value={formState.currency}
                 onChange={(event) => setFormState({ ...formState, currency: event.target.value })}
+                required
               />
             </label>
             <label>
@@ -312,6 +457,32 @@ function MyRequests() {
                 step="0.01"
                 value={formState.totalAmount}
                 onChange={(event) => setFormState({ ...formState, totalAmount: event.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Invoice number
+              <input
+                value={formState.invoiceNumber}
+                onChange={(event) => setFormState({ ...formState, invoiceNumber: event.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Invoice date
+              <input
+                type="date"
+                value={formState.invoiceDate}
+                onChange={(event) => setFormState({ ...formState, invoiceDate: event.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Supplier
+              <input
+                value={formState.supplier}
+                onChange={(event) => setFormState({ ...formState, supplier: event.target.value })}
+                required
               />
             </label>
             {formError && <p className="error">{formError}</p>}
@@ -323,10 +494,74 @@ function MyRequests() {
           </form>
         </div>
       )}
-  return (
-    <div>
-      <h1>My Requests</h1>
-      <RequestsTable items={requests} />
+      <RequestsTable
+        items={openRequests}
+        actions={(item) => (
+          <div className="table-actions">
+            {item.status === 'DRAFT' || item.status === 'RETURNED' ? (
+              <button onClick={() => onSubmitRequest(item.id)}>Submit</button>
+            ) : null}
+            {item.status === 'SUBMITTED' || item.status === 'UNDER_REVIEW' ? (
+              <button onClick={() => onWithdrawRequest(item.id)}>Withdraw</button>
+            ) : null}
+          </div>
+        )}
+      />
+      <div className="page-header">
+        <div>
+          <h2>History</h2>
+          <p className="muted">Submitted requests and outcomes by month.</p>
+        </div>
+        <div>
+          <select value={historyMonth} onChange={(event) => setHistoryMonth(event.target.value)}>
+            <option value="all">All months</option>
+            {historyMonths.map((month) => (
+              <option key={month} value={month}>
+                {month}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Request #</th>
+            <th>Status</th>
+            <th>Submitted At</th>
+            <th>Comment</th>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredHistory.map((item) => {
+            const decision = getLatestAction(item, ['APPROVE', 'REJECT', 'RETURN']);
+            return (
+              <tr key={item.id}>
+                <td>
+                  <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
+                </td>
+                <td>
+                  <StatusBadge status={item.status} />
+                </td>
+                <td>{formatDate(item.submittedAt)}</td>
+                <td>{decision?.comment || '-'}</td>
+                <td>{item.invoiceNumber || '-'}</td>
+                <td>{formatDate(item.invoiceDate)}</td>
+                <td>{item.supplier || '-'}</td>
+                <td>{item.category?.name}</td>
+                <td>
+                  {item.currency} {item.totalAmount}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -334,18 +569,162 @@ function MyRequests() {
 function ApprovalQueue() {
   const auth = useAuth();
   const fetcher = useAuthedFetch(auth.token);
+  const mutate = useAuthedMutation(auth.token);
   const [requests, setRequests] = useState<any[]>([]);
+  const [historyMonth, setHistoryMonth] = useState('all');
+  const isApprover = auth.user?.role === 'APPROVER' || auth.user?.role === 'SYSTEM_ADMIN';
+
   useEffect(() => {
     if (!auth.token) return;
-    fetcher('/requests')
-      .then((data) => data.filter((item: any) => item.status === 'UNDER_REVIEW'))
-      .then(setRequests)
+    fetcher('/requests').then(setRequests)
       .catch(() => setRequests([]));
   }, [auth.token, fetcher]);
+
+  const refresh = async () => {
+    if (!auth.token) return;
+    fetcher('/requests').then(setRequests)
+      .catch(() => setRequests([]));
+  };
+
+  const onApprove = async (id: string) => {
+    const comment = window.prompt('Approval reason?');
+    if (!comment) return;
+    await mutate(`/requests/${id}/approve`, { comment });
+    await refresh();
+  };
+
+  const onReject = async (id: string) => {
+    const comment = window.prompt('Rejection reason?');
+    if (!comment) return;
+    await mutate(`/requests/${id}/reject`, { comment });
+    await refresh();
+  };
+
+  const openRequests = requests.filter((item) => ['UNDER_REVIEW', 'SUBMITTED'].includes(item.status));
+  const historyItems = requests.filter((item) => {
+    if (!HISTORY_STATUSES.has(item.status)) return false;
+    const action = getLatestAction(item, ['APPROVE', 'REJECT', 'RETURN'], auth.user?.sub);
+    return Boolean(action);
+  });
+  const historyMonths = Array.from(
+    new Set(historyItems.map((item) => monthKey(item.submittedAt)).filter(Boolean))
+  ).sort()
+    .reverse();
+  const filteredHistory =
+    historyMonth === 'all'
+      ? historyItems
+      : historyItems.filter((item) => monthKey(item.submittedAt) === historyMonth);
+
   return (
     <div>
       <h1>Approval Queue</h1>
-      <RequestsTable items={requests} />
+      {!isApprover ? (
+        <p className="error">You must be logged in as an approver to approve requests.</p>
+      ) : (
+        <>
+      <table>
+        <thead>
+          <tr>
+            <th>Request #</th>
+            <th>Status</th>
+            <th>Submitted By</th>
+            <th>Submitted At</th>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>Total</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {openRequests.map((item) => (
+            <tr key={item.id}>
+              <td>
+                <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
+              </td>
+              <td>
+                <StatusBadge status={item.status} />
+              </td>
+              <td>{item.employee?.fullName || item.employee?.email}</td>
+              <td>{formatDate(item.submittedAt)}</td>
+              <td>{item.invoiceNumber || '-'}</td>
+              <td>{formatDate(item.invoiceDate)}</td>
+              <td>{item.supplier || '-'}</td>
+              <td>{item.category?.name}</td>
+              <td>
+                {item.currency} {item.totalAmount}
+              </td>
+              <td>
+                <div className="table-actions">
+                  <button onClick={() => onApprove(item.id)}>Approve</button>
+                  <button onClick={() => onReject(item.id)}>Disapprove</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="page-header">
+        <div>
+          <h2>History</h2>
+          <p className="muted">Requests you have decided on, grouped by month.</p>
+        </div>
+        <div>
+          <select value={historyMonth} onChange={(event) => setHistoryMonth(event.target.value)}>
+            <option value="all">All months</option>
+            {historyMonths.map((month) => (
+              <option key={month} value={month}>
+                {month}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Request #</th>
+            <th>Status</th>
+            <th>Submitted By</th>
+            <th>Submitted At</th>
+            <th>Decision At</th>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredHistory.map((item) => {
+            const decision = getLatestAction(item, ['APPROVE', 'REJECT', 'RETURN'], auth.user?.sub);
+            return (
+              <tr key={item.id}>
+                <td>
+                  <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
+                </td>
+                <td>
+                  <StatusBadge status={item.status} />
+                </td>
+                <td>{item.employee?.fullName || item.employee?.email}</td>
+                <td>{formatDate(item.submittedAt)}</td>
+                <td>{formatDate(decision?.createdAt)}</td>
+                <td>{item.invoiceNumber || '-'}</td>
+                <td>{formatDate(item.invoiceDate)}</td>
+                <td>{item.supplier || '-'}</td>
+                <td>{item.category?.name}</td>
+                <td>
+                  {item.currency} {item.totalAmount}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+        </>
+      )}
     </div>
   );
 }
@@ -353,18 +732,151 @@ function ApprovalQueue() {
 function FinanceQueue() {
   const auth = useAuth();
   const fetcher = useAuthedFetch(auth.token);
+  const mutate = useAuthedMutation(auth.token);
   const [requests, setRequests] = useState<any[]>([]);
+  const [historyMonth, setHistoryMonth] = useState('all');
+  const isFinance = auth.user?.role === 'FINANCE_ADMIN' || auth.user?.role === 'SYSTEM_ADMIN';
   useEffect(() => {
     if (!auth.token) return;
-    fetcher('/requests')
-      .then((data) => data.filter((item: any) => ['APPROVED', 'PAYMENT_PROCESSING'].includes(item.status)))
-      .then(setRequests)
+    fetcher('/requests').then(setRequests)
       .catch(() => setRequests([]));
   }, [auth.token, fetcher]);
+
+  const refresh = async () => {
+    if (!auth.token) return;
+    fetcher('/requests').then(setRequests)
+      .catch(() => setRequests([]));
+  };
+
+  const onReimburse = async (id: string) => {
+    await mutate(`/requests/${id}/finance/paid`);
+    await refresh();
+  };
+
+  const openRequests = requests.filter((item) => ['APPROVED', 'PAYMENT_PROCESSING'].includes(item.status));
+  const historyItems = requests.filter((item) => {
+    if (!HISTORY_STATUSES.has(item.status)) return false;
+    const action = getLatestAction(item, ['PAID'], auth.user?.sub);
+    return Boolean(action);
+  });
+  const historyMonths = Array.from(
+    new Set(historyItems.map((item) => monthKey(item.submittedAt)).filter(Boolean))
+  ).sort()
+    .reverse();
+  const filteredHistory =
+    historyMonth === 'all'
+      ? historyItems
+      : historyItems.filter((item) => monthKey(item.submittedAt) === historyMonth);
+
   return (
     <div>
       <h1>Finance Queue</h1>
-      <RequestsTable items={requests} />
+      {!isFinance ? (
+        <p className="error">You must be logged in as finance to reimburse requests.</p>
+      ) : (
+        <>
+      <table>
+        <thead>
+          <tr>
+            <th>Request #</th>
+            <th>Status</th>
+            <th>Submitted By</th>
+            <th>Submitted At</th>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>Total</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {openRequests.map((item) => (
+            <tr key={item.id}>
+              <td>
+                <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
+              </td>
+              <td>
+                <StatusBadge status={item.status} />
+              </td>
+              <td>{item.employee?.fullName || item.employee?.email}</td>
+              <td>{formatDate(item.submittedAt)}</td>
+              <td>{item.invoiceNumber || '-'}</td>
+              <td>{formatDate(item.invoiceDate)}</td>
+              <td>{item.supplier || '-'}</td>
+              <td>{item.category?.name}</td>
+              <td>
+                {item.currency} {item.totalAmount}
+              </td>
+              <td>
+                <div className="table-actions">
+                  <button onClick={() => onReimburse(item.id)}>Mark Reimbursed</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="page-header">
+        <div>
+          <h2>History</h2>
+          <p className="muted">Reimbursed requests by month.</p>
+        </div>
+        <div>
+          <select value={historyMonth} onChange={(event) => setHistoryMonth(event.target.value)}>
+            <option value="all">All months</option>
+            {historyMonths.map((month) => (
+              <option key={month} value={month}>
+                {month}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Request #</th>
+            <th>Status</th>
+            <th>Submitted By</th>
+            <th>Submitted At</th>
+            <th>Reimbursed At</th>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredHistory.map((item) => {
+            const paid = getLatestAction(item, ['PAID'], auth.user?.sub);
+            return (
+              <tr key={item.id}>
+                <td>
+                  <Link to={`/requests/${item.id}`}>{item.requestNumber}</Link>
+                </td>
+                <td>
+                  <StatusBadge status={item.status} />
+                </td>
+                <td>{item.employee?.fullName || item.employee?.email}</td>
+                <td>{formatDate(item.submittedAt)}</td>
+                <td>{formatDate(paid?.createdAt)}</td>
+                <td>{item.invoiceNumber || '-'}</td>
+                <td>{formatDate(item.invoiceDate)}</td>
+                <td>{item.supplier || '-'}</td>
+                <td>{item.category?.name}</td>
+                <td>
+                  {item.currency} {item.totalAmount}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+        </>
+      )}
     </div>
   );
 }

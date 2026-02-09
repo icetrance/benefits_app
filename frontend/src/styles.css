@@ -151,6 +151,38 @@ table th,
   border-bottom: 1px solid #e2e8f0;
 }
 
+.table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: #e2e8f0;
+  color: #1f2937;
+}
+
+.status-red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-yellow {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.status-green {
+  background: #dcfce7;
+  color: #15803d;
+}
+
 .timeline {
   list-style: none;
   padding: 0;
