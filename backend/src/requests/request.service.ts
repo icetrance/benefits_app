@@ -19,13 +19,9 @@ export class RequestService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService
-  ) {}
+  ) { }
 
-  private ensureEmployee(role: Role) {
-    if (role !== Role.EMPLOYEE) {
-      throw new ForbiddenException('Only employees can create requests');
-    }
-  }
+  // Removed ensureEmployee as any authenticated user can create a request
 
   private async getRequestOrThrow(id: string) {
     const request = await this.prisma.expenseRequest.findUnique({
@@ -38,10 +34,26 @@ export class RequestService {
     return request;
   }
 
+  /** Verify that the request's employee is a direct report of the actor (approver). */
+  private async ensureTeamMember(actorId: string, role: Role, employeeId: string) {
+    if (role === Role.SYSTEM_ADMIN) return; // admins bypass
+    const employee = await this.prisma.user.findUnique({ where: { id: employeeId } });
+    if (!employee || employee.managerId !== actorId) {
+      throw new ForbiddenException('You can only act on requests from your team members');
+    }
+  }
+
   async createRequest(userId: string, role: Role, dto: CreateRequestDto) {
-    this.ensureEmployee(role);
+    // Removed ensureEmployee(role) check
     const count = await this.prisma.expenseRequest.count();
     const requestNumber = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+
+    // Determine expense type from category
+    const category = await this.prisma.expenseCategory.findUnique({ where: { id: dto.categoryId } });
+    if (!category) {
+      throw new BadRequestException('Invalid category');
+    }
+
     const request = await this.prisma.expenseRequest.create({
       data: {
         requestNumber,
@@ -53,6 +65,7 @@ export class RequestService {
         invoiceNumber: dto.invoiceNumber,
         invoiceDate: dto.invoiceDate ? new Date(dto.invoiceDate) : undefined,
         supplier: dto.supplier,
+        expenseType: category.expenseType,
         status: RequestStatus.DRAFT
       }
     });
@@ -67,13 +80,30 @@ export class RequestService {
   }
 
   async listRequests(userId: string, role: Role) {
+    const includeRelations = {
+      category: true,
+      employee: true,
+      actions: { include: { actor: true } }
+    };
+
     if (role === Role.EMPLOYEE) {
+      // Employees see only their own requests
       return this.prisma.expenseRequest.findMany({
         where: { employeeId: userId },
-        include: { category: true, employee: true, actions: true }
+        include: includeRelations
       });
     }
-    return this.prisma.expenseRequest.findMany({ include: { category: true, employee: true, actions: true } });
+
+    if (role === Role.APPROVER) {
+      // Approvers see only their direct reports' requests
+      return this.prisma.expenseRequest.findMany({
+        where: { employee: { managerId: userId } },
+        include: includeRelations
+      });
+    }
+
+    // FINANCE_ADMIN and SYSTEM_ADMIN see all requests
+    return this.prisma.expenseRequest.findMany({ include: includeRelations });
   }
 
   async getRequest(userId: string, role: Role, id: string) {
@@ -81,15 +111,21 @@ export class RequestService {
     if (role === Role.EMPLOYEE && request.employeeId !== userId) {
       throw new ForbiddenException('Not allowed');
     }
+    if (role === Role.APPROVER) {
+      const employee = await this.prisma.user.findUnique({ where: { id: request.employeeId } });
+      if (!employee || (employee.managerId !== userId && request.employeeId !== userId)) {
+        throw new ForbiddenException('Not allowed');
+      }
+    }
     return this.prisma.expenseRequest.findUnique({
       where: { id },
-      include: { lineItems: true, receipts: true, actions: true, category: true, employee: true }
+      include: { lineItems: true, receipts: true, actions: { include: { actor: true } }, category: true, employee: true }
     });
   }
 
   async updateRequest(userId: string, role: Role, id: string, dto: UpdateRequestDto) {
     const request = await this.getRequestOrThrow(id);
-    if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
+    if (request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can edit');
     }
     if (!EDITABLE_STATUSES.includes(request.status)) {
@@ -128,7 +164,7 @@ export class RequestService {
 
   async submitRequest(userId: string, role: Role, id: string) {
     const request = await this.getRequestOrThrow(id);
-    if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
+    if (request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can submit');
     }
     if (!EDITABLE_STATUSES.includes(request.status)) {
@@ -179,7 +215,7 @@ export class RequestService {
 
   async withdrawRequest(userId: string, role: Role, id: string) {
     const request = await this.getRequestOrThrow(id);
-    if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
+    if (request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can withdraw');
     }
     if (!WITHDRAWABLE_STATUSES.includes(request.status)) {
@@ -200,7 +236,7 @@ export class RequestService {
   }
 
   async approveRequest(actorId: string, role: Role, id: string, comment?: string) {
-    if (role !== Role.APPROVER) {
+    if (role !== Role.APPROVER && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only approvers can approve');
     }
     if (!comment) {
@@ -210,6 +246,7 @@ export class RequestService {
     if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
+    await this.ensureTeamMember(actorId, role, request.employeeId);
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
       data: { status: RequestStatus.APPROVED }
@@ -240,7 +277,7 @@ export class RequestService {
   }
 
   async rejectRequest(actorId: string, role: Role, id: string, comment?: string) {
-    if (role !== Role.APPROVER) {
+    if (role !== Role.APPROVER && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only approvers can reject');
     }
     if (!comment) {
@@ -250,6 +287,7 @@ export class RequestService {
     if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
+    await this.ensureTeamMember(actorId, role, request.employeeId);
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
       data: { status: RequestStatus.REJECTED }
@@ -280,7 +318,7 @@ export class RequestService {
   }
 
   async returnRequest(actorId: string, role: Role, id: string, comment?: string) {
-    if (role !== Role.APPROVER) {
+    if (role !== Role.APPROVER && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only approvers can return');
     }
     if (!comment) {
@@ -290,6 +328,7 @@ export class RequestService {
     if (!REVIEW_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request is not in review');
     }
+    await this.ensureTeamMember(actorId, role, request.employeeId);
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
       data: { status: RequestStatus.RETURNED }
@@ -320,7 +359,7 @@ export class RequestService {
   }
 
   async financeProcess(actorId: string, role: Role, id: string) {
-    if (role !== Role.FINANCE_ADMIN) {
+    if (role !== Role.FINANCE_ADMIN && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only finance can process');
     }
     const request = await this.getRequestOrThrow(id);
@@ -356,7 +395,7 @@ export class RequestService {
   }
 
   async financePaid(actorId: string, role: Role, id: string) {
-    if (role !== Role.FINANCE_ADMIN) {
+    if (role !== Role.FINANCE_ADMIN && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only finance can mark paid');
     }
     const request = await this.getRequestOrThrow(id);
@@ -376,6 +415,21 @@ export class RequestService {
         toStatus: RequestStatus.PAID
       }
     });
+
+    // Update budget allocation if this is a benefit category
+    if (request.category && request.category.expenseType === 'BENEFIT') {
+      const year = request.submittedAt ? request.submittedAt.getFullYear() : new Date().getFullYear();
+      const budget = await this.prisma.budgetAllocation.findUnique({
+        where: { userId_categoryId_year: { userId: request.employeeId, categoryId: request.categoryId, year } }
+      });
+      if (budget) {
+        await this.prisma.budgetAllocation.update({
+          where: { id: budget.id },
+          data: { spent: budget.spent + request.totalAmount }
+        });
+      }
+    }
+
     await this.auditService.recordEvent({
       actorId,
       entityType: 'ExpenseRequest',

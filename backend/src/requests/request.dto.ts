@@ -16,17 +16,17 @@ export class CreateRequestDto {
   @IsNumber()
   totalAmount!: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  invoiceNumber!: string;
+  invoiceNumber?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  invoiceDate!: string;
+  invoiceDate?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  supplier!: string;
+  supplier?: string;
 }
 
 export class UpdateRequestDto {
