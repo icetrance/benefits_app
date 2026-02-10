@@ -1,12 +1,19 @@
 # ExpenseFlow
 
-ExpenseFlow is a single-tenant expense reimbursement platform with a mandatory approval workflow, tamper-evident audit trail, and role-based access control.
+ExpenseFlow is a single-tenant expense reimbursement platform with:
+- **Manager-based approval hierarchy** — approvers see only their direct reports' requests
+- **Three expense types** — Benefits (with annual budgets), Travel, Protocol
+- **Budget tracking** — per-employee per-category annual allocations with visual progress bars
+- **Admin interface** — user management, role assignment, manager hierarchy, password resets
+- **Tamper-evident audit trail** — SHA-256 chained entries with integrity verification
+- **Role-based access** — EMPLOYEE, APPROVER, FINANCE_ADMIN, SYSTEM_ADMIN
 
 ## Tech Stack
 
 - **Backend**: Node.js + TypeScript + NestJS + PostgreSQL + Prisma
 - **Frontend**: React + TypeScript + Vite
 - **Auth**: JWT (email/password) + bcrypt
+- **Design**: e-Ink minimalist aesthetic (Inter font, monochrome palette)
 - **Infra**: Docker + Docker Compose + local uploads + Nodemailer
 
 ## Local Development
@@ -85,7 +92,7 @@ npm run migrate:deploy
 npm run seed
 ```
 
-The seed script prints generated passwords exactly once in the console.
+The seed script creates 8 users (2 approvers, 4 employees with manager assignments, 1 finance admin, 1 system admin), 5 expense categories, and budget allocations. Passwords are printed once at seed time.
 
 ## Backup Strategy
 

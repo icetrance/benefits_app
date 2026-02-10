@@ -14,6 +14,12 @@ enum Role {
   SYSTEM_ADMIN
 }
 
+enum ExpenseType {
+  BENEFIT
+  TRAVEL
+  PROTOCOL
+}
+
 enum RequestStatus {
   DRAFT
   SUBMITTED
@@ -40,19 +46,26 @@ model User {
   passwordHash String
   fullName     String
   role         Role
+  managerId    String?
+  manager      User?             @relation("ManagerReports", fields: [managerId], references: [id])
+  reports      User[]            @relation("ManagerReports")
   active       Boolean           @default(true)
   createdAt    DateTime          @default(now())
   requests     ExpenseRequest[]  @relation("EmployeeRequests")
   approvals    ApprovalAction[]  @relation("ApprovalActor")
   auditLogs    AuditLog[]        @relation("AuditActor")
+  budgets      BudgetAllocation[]
 }
 
 model ExpenseCategory {
-  id              String           @id @default(uuid())
-  name            String           @unique
-  requiresReceipt Boolean          @default(false)
-  active          Boolean          @default(true)
+  id              String              @id @default(uuid())
+  name            String              @unique
+  expenseType     ExpenseType         @default(BENEFIT)
+  defaultBudget   Float               @default(0)
+  requiresReceipt Boolean             @default(false)
+  active          Boolean             @default(true)
   requests        ExpenseRequest[]
+  budgets         BudgetAllocation[]
 }
 
 model ExpenseRequest {
@@ -61,6 +74,7 @@ model ExpenseRequest {
   employeeId     String
   categoryId     String
   reason         String
+  expenseType    ExpenseType         @default(BENEFIT)
   status         RequestStatus       @default(DRAFT)
   currency       String
   totalAmount    Float
@@ -123,4 +137,17 @@ model AuditLog {
   hash         String
   createdAt    DateTime @default(now())
   actor        User     @relation("AuditActor", fields: [actorId], references: [id])
+}
+
+model BudgetAllocation {
+  id          String          @id @default(uuid())
+  userId      String
+  categoryId  String
+  year        Int
+  allocated   Float
+  spent       Float           @default(0)
+  user        User            @relation(fields: [userId], references: [id])
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([userId, categoryId, year])
 }

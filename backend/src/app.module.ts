@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
+import { BudgetModule } from './budget/budget.module';
 import { RequestController } from './requests/request.controller';
 import { RequestService } from './requests/request.service';
 import { PrismaService } from './prisma.service';
@@ -15,7 +17,7 @@ import { CategoryService } from './categories/category.service';
 import { CategoryController } from './categories/category.controller';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, AdminModule, BudgetModule],
   controllers: [
     RequestController,
     AuditController,
@@ -34,4 +36,4 @@ import { CategoryController } from './categories/category.controller';
     CategoryService
   ]
 })
-export class AppModule {}
+export class AppModule { }

@@ -10,7 +10,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly auditService: AuditService
-  ) {}
+  ) { }
 
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
@@ -21,7 +21,7 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = { sub: user.id, email: user.email, role: user.role, fullName: user.fullName, managerId: user.managerId };
     const token = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_SECRET || 'expenseflow-secret',
       expiresIn: '8h'
