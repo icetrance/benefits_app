@@ -54,6 +54,13 @@ export class AuditService {
     });
   }
 
+  async getLogs() {
+    return this.prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { actor: { select: { id: true, fullName: true, email: true, role: true } } }
+    });
+  }
+
   async verifyChain() {
     const logs = await this.prisma.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
     let prevHash = 'GENESIS';

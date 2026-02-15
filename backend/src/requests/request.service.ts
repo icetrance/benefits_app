@@ -9,7 +9,7 @@ const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.R
 const REVIEW_STATUSES: RequestStatus[] = [RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED];
 const WITHDRAWABLE_STATUSES: RequestStatus[] = [RequestStatus.SUBMITTED, RequestStatus.UNDER_REVIEW];
 const FINANCE_PAYABLE_STATUSES: RequestStatus[] = [
-  RequestStatus.APPROVED,
+  RequestStatus.FINANCE_APPROVED,
   RequestStatus.PAYMENT_PROCESSING
 ];
 
@@ -34,9 +34,13 @@ export class RequestService {
     return request;
   }
 
-  /** Verify that the request's employee is a direct report of the actor (approver). */
+  /** Verify that the request's employee is a direct report of the actor (approver).
+   * Approvers may also own requests themselves (submitted by a peer/admin), so we allow
+   * acting on their own requests as well if they are the employee.
+   */
   private async ensureTeamMember(actorId: string, role: Role, employeeId: string) {
     if (role === Role.SYSTEM_ADMIN) return; // admins bypass
+    if (employeeId === actorId) return; // approvers can act on their own requests
     const employee = await this.prisma.user.findUnique({ where: { id: employeeId } });
     if (!employee || employee.managerId !== actorId) {
       throw new ForbiddenException('You can only act on requests from your team members');
@@ -52,6 +56,66 @@ export class RequestService {
     const category = await this.prisma.expenseCategory.findUnique({ where: { id: dto.categoryId } });
     if (!category) {
       throw new BadRequestException('Invalid category');
+    }
+
+    // 1. Future Date Check
+    if (dto.invoiceDate && new Date(dto.invoiceDate) > new Date()) {
+      throw new BadRequestException('Invoice date cannot be in the future');
+    }
+
+    // 2. Max Amount Check
+    if (category.maxAmountPerRequest && dto.totalAmount > category.maxAmountPerRequest) {
+      throw new BadRequestException(`Amount exceeds the limit of ${category.maxAmountPerRequest} for this category`);
+    }
+
+    // 3. Budget Check (for Benefits)
+    if (category.expenseType === 'BENEFIT') {
+      const year = new Date().getFullYear();
+
+      // Get allocation
+      const allocation = await this.prisma.budgetAllocation.findUnique({
+        where: { userId_categoryId_year: { userId, categoryId: dto.categoryId, year } }
+      });
+
+      if (!allocation) {
+        // If no allocation exists, we might default to 0 or create one based on defaultBudget. 
+        // For stricter control, we assume if no allocation, no budget.
+        // However, the system auto-creates allocations. If missing, implies 0.
+        throw new BadRequestException('No budget allocation found for this category');
+      }
+
+      // Calculate pending amount (SUBMITTED, UNDER_REVIEW, APPROVED, PAYMENT_PROCESSING)
+      // DRAFT, REJECTED, RETURNED, PAID do not count towards "pending" (PAID counts towards "spent" in allocation)
+      const sensitiveStatuses = [
+        RequestStatus.SUBMITTED,
+        RequestStatus.UNDER_REVIEW,
+        RequestStatus.APPROVED,
+        RequestStatus.PAYMENT_PROCESSING
+      ];
+
+      const pendingRequests = await this.prisma.expenseRequest.aggregate({
+        where: {
+          employeeId: userId,
+          categoryId: dto.categoryId,
+          status: { in: sensitiveStatuses },
+          // filter by year? Usually budgets are annual. 
+          // If a request is made in Dec 2025 for 2025 budget, it counts.
+          // We assume requests follow current year or submittedAt year.
+          // For simplicity, we filter by createdAt year matching current year for pending.
+          createdAt: {
+            gte: new Date(year, 0, 1),
+            lt: new Date(year + 1, 0, 1)
+          }
+        },
+        _sum: { totalAmount: true }
+      });
+
+      const pendingAmount = pendingRequests._sum.totalAmount || 0;
+      const available = allocation.allocated - allocation.spent - pendingAmount;
+
+      if (dto.totalAmount > available) {
+        throw new BadRequestException(`Amount exceeds remaining budget. Available: ${available.toFixed(2)}`);
+      }
     }
 
     const request = await this.prisma.expenseRequest.create({
@@ -79,6 +143,20 @@ export class RequestService {
     return request;
   }
 
+  async listRequestsForAudit() {
+    return this.prisma.expenseRequest.findMany({
+      include: {
+        category: true,
+        employee: { select: { id: true, fullName: true, email: true, role: true } },
+        actions: {
+          include: { actor: { select: { id: true, fullName: true, email: true, role: true } } },
+          orderBy: { createdAt: 'asc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
   async listRequests(userId: string, role: Role) {
     const includeRelations = {
       category: true,
@@ -95,9 +173,9 @@ export class RequestService {
     }
 
     if (role === Role.APPROVER) {
-      // Approvers see only their direct reports' requests
+      // Approvers see their own requests AND their direct reports' requests
       return this.prisma.expenseRequest.findMany({
-        where: { employee: { managerId: userId } },
+        where: { OR: [{ employeeId: userId }, { employee: { managerId: userId } }] },
         include: includeRelations
       });
     }
@@ -112,9 +190,12 @@ export class RequestService {
       throw new ForbiddenException('Not allowed');
     }
     if (role === Role.APPROVER) {
-      const employee = await this.prisma.user.findUnique({ where: { id: request.employeeId } });
-      if (!employee || (employee.managerId !== userId && request.employeeId !== userId)) {
-        throw new ForbiddenException('Not allowed');
+      // Approvers can view their own requests or their direct reports' requests
+      if (request.employeeId !== userId) {
+        const employee = await this.prisma.user.findUnique({ where: { id: request.employeeId } });
+        if (!employee || employee.managerId !== userId) {
+          throw new ForbiddenException('Not allowed');
+        }
       }
     }
     return this.prisma.expenseRequest.findUnique({
@@ -358,13 +439,105 @@ export class RequestService {
     return updated;
   }
 
+  async financeApprove(actorId: string, role: Role, id: string, comment?: string) {
+    if (role !== Role.FINANCE_ADMIN && role !== Role.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only finance can approve documents');
+    }
+    const request = await this.getRequestOrThrow(id);
+    if (request.status !== RequestStatus.APPROVED) {
+      throw new BadRequestException('Request must be in APPROVED status to be finance-approved');
+    }
+    const updated = await this.prisma.expenseRequest.update({
+      where: { id },
+      data: { status: RequestStatus.FINANCE_APPROVED }
+    });
+    await this.prisma.approvalAction.create({
+      data: {
+        requestId: id,
+        actorId,
+        actionType: ApprovalActionType.FINANCE_APPROVE,
+        fromStatus: request.status,
+        toStatus: RequestStatus.FINANCE_APPROVED,
+        comment
+      }
+    });
+    await this.auditService.recordEvent({
+      actorId,
+      entityType: 'ExpenseRequest',
+      entityId: id,
+      eventType: 'FINANCE_APPROVE',
+      eventData: { comment: comment || '' }
+    });
+    await this.notificationService.send(
+      request.employee.email,
+      'ExpenseFlow: Documents approved by finance',
+      `Your request ${request.requestNumber} has been finance-approved and is queued for reimbursement.`
+    );
+    return updated;
+  }
+
+  async financeReturn(actorId: string, role: Role, id: string, comment?: string) {
+    if (role !== Role.FINANCE_ADMIN && role !== Role.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only finance can return requests');
+    }
+    if (!comment) {
+      throw new BadRequestException('A comment is required when returning a request');
+    }
+    const request = await this.getRequestOrThrow(id);
+    if (request.status !== RequestStatus.APPROVED && request.status !== RequestStatus.FINANCE_APPROVED) {
+      throw new BadRequestException('Request must be in APPROVED or FINANCE_APPROVED status to be returned');
+    }
+    // Find the original approver to notify
+    const approveAction = await this.prisma.approvalAction.findFirst({
+      where: { requestId: id, actionType: ApprovalActionType.APPROVE },
+      include: { actor: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    const updated = await this.prisma.expenseRequest.update({
+      where: { id },
+      data: { status: RequestStatus.UNDER_REVIEW }
+    });
+    await this.prisma.approvalAction.create({
+      data: {
+        requestId: id,
+        actorId,
+        actionType: ApprovalActionType.FINANCE_RETURN,
+        fromStatus: request.status,
+        toStatus: RequestStatus.UNDER_REVIEW,
+        comment
+      }
+    });
+    await this.auditService.recordEvent({
+      actorId,
+      entityType: 'ExpenseRequest',
+      entityId: id,
+      eventType: 'FINANCE_RETURN',
+      eventData: { comment }
+    });
+    // Notify the approver
+    if (approveAction?.actor?.email) {
+      await this.notificationService.send(
+        approveAction.actor.email,
+        'ExpenseFlow: Request returned by Finance',
+        `Request ${request.requestNumber} was returned by Finance with comment: ${comment}`
+      );
+    }
+    // Also notify the employee
+    await this.notificationService.send(
+      request.employee.email,
+      'ExpenseFlow: Request returned by Finance',
+      `Your request ${request.requestNumber} was returned by Finance. Comment: ${comment}`
+    );
+    return updated;
+  }
+
   async financeProcess(actorId: string, role: Role, id: string) {
     if (role !== Role.FINANCE_ADMIN && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only finance can process');
     }
     const request = await this.getRequestOrThrow(id);
-    if (request.status !== RequestStatus.APPROVED) {
-      throw new BadRequestException('Request must be approved');
+    if (request.status !== RequestStatus.FINANCE_APPROVED) {
+      throw new BadRequestException('Request must be finance-approved before processing payment');
     }
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
@@ -400,7 +573,7 @@ export class RequestService {
     }
     const request = await this.getRequestOrThrow(id);
     if (!FINANCE_PAYABLE_STATUSES.includes(request.status)) {
-      throw new BadRequestException('Request must be approved');
+      throw new BadRequestException('Request must be finance-approved before it can be marked as paid');
     }
     const updated = await this.prisma.expenseRequest.update({
       where: { id },

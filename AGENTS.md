@@ -1,5 +1,40 @@
 # AGENTS.md
 
+## Startup Instructions
+
+On every session start, before doing any work:
+1. Read `docs/PENDING.md` for current priorities
+2. Read `docs/CHANGELOG.md` (last 20 lines) for recent context
+3. Read `docs/BUGS.md` for known issues to avoid
+4. Read `README.md` for project context and setup instructions
+
+After completing work in a session:
+1. Append a dated entry to `docs/CHANGELOG.md` describing what was done
+2. Update `docs/PENDING.md` to reflect remaining or new tasks
+3. If a bug was fixed, add an entry to `docs/BUGS.md`
+4. Commit and push changes
+
+## Runtime
+
+From `/opt/benefits_app`:
+
+```bash
+# Start all services
+docker compose up -d --build
+
+# Apply migrations
+docker compose exec backend npm run migrate:deploy
+
+# Seed database
+docker compose exec backend npm run seed
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+```
+
 ## Project Overview
 ExpenseFlow is a single-tenant expense reimbursement platform with:
 - Mandatory approval workflow with manager hierarchy

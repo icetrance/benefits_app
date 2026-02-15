@@ -12,6 +12,7 @@ enum Role {
   APPROVER
   FINANCE_ADMIN
   SYSTEM_ADMIN
+  AUDITOR
 }
 
 enum ExpenseType {
@@ -27,6 +28,7 @@ enum RequestStatus {
   RETURNED
   REJECTED
   APPROVED
+  FINANCE_APPROVED
   PAYMENT_PROCESSING
   PAID
 }
@@ -36,6 +38,8 @@ enum ApprovalActionType {
   APPROVE
   REJECT
   RETURN
+  FINANCE_APPROVE
+  FINANCE_RETURN
   FINANCE_PROCESS
   PAID
 }
@@ -64,6 +68,7 @@ model ExpenseCategory {
   defaultBudget   Float               @default(0)
   requiresReceipt Boolean             @default(false)
   active          Boolean             @default(true)
+  maxAmountPerRequest Float?
   requests        ExpenseRequest[]
   budgets         BudgetAllocation[]
 }
@@ -92,13 +97,14 @@ model ExpenseRequest {
 }
 
 model ExpenseLineItem {
-  id          String         @id @default(uuid())
-  requestId   String
-  date        DateTime
-  description String
-  amount      Float
-  currency    String
-  request     ExpenseRequest @relation(fields: [requestId], references: [id])
+  id           String         @id @default(uuid())
+  requestId    String
+  date         DateTime
+  description  String
+  amount       Float
+  currency     String
+  lineItemType String?        // TRANSPORT | HOTEL | ACCOMMODATION | MEALS | MISC | OTHER
+  request      ExpenseRequest @relation(fields: [requestId], references: [id])
 }
 
 model ReceiptAttachment {

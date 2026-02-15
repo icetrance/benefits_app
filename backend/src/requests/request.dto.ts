@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsUUID, IsOptional, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional, IsNotEmpty, Min } from 'class-validator';
 
 export class CreateRequestDto {
   @IsUUID()
@@ -14,6 +14,7 @@ export class CreateRequestDto {
   currency!: string;
 
   @IsNumber()
+  @Min(0.01, { message: 'Total amount must be positive' })
   totalAmount!: number;
 
   @IsOptional()
@@ -44,6 +45,7 @@ export class UpdateRequestDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0.01, { message: 'Total amount must be positive' })
   totalAmount?: number;
 
   @IsOptional()

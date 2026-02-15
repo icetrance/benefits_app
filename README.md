@@ -16,7 +16,23 @@ ExpenseFlow is a single-tenant expense reimbursement platform with:
 - **Design**: e-Ink minimalist aesthetic (Inter font, monochrome palette)
 - **Infra**: Docker + Docker Compose + local uploads + Nodemailer
 
-## Local Development
+## Quickstart (Docker)
+
+From repo root:
+
+```bash
+docker compose up -d --build
+docker compose exec backend npm run migrate:deploy
+docker compose exec backend npm run seed
+```
+
+Services:
+- Backend: `http://localhost:3000` (Swagger: `http://localhost:3000/docs`)
+- Frontend: `http://localhost:8080`
+
+Note: `VITE_API_BASE` is compiled into the frontend at build time. The `docker-compose.yml` may contain a hardcoded value (e.g., for a specific environment). If you are running locally or need to change it, ensure you update `docker-compose.yml` or `frontend/.env` and rebuild the frontend image (e.g., `docker compose up -d --build`).
+
+## Local Development (Run Node on Host)
 
 ### 1) Start Postgres
 
@@ -35,6 +51,8 @@ npm run migrate
 npm run seed
 npm run start:dev
 ```
+
+If you are running the backend on the host (not in Docker), ensure `DATABASE_URL` in `backend/.env` points at `localhost:5432` (Compose publishes Postgres on port 5432). The default `.env.example` uses the Docker service hostname `db`, which only resolves from inside the Compose network.
 
 The backend is available at `http://localhost:3000` and Swagger docs at `http://localhost:3000/docs`.
 
@@ -104,23 +122,6 @@ Example backup commands:
 ```bash
 docker compose exec db pg_dump -U expenseflow expenseflow > backup.sql
 cp -R uploads backups/uploads-$(date +%F)
-```
-
-## Nginx Reverse Proxy (optional)
-
-```nginx
-server {
-  listen 80;
-  server_name expenseflow.example.com;
-
-  location / {
-    proxy_pass http://localhost:8080;
-  }
-
-  location /api/ {
-    proxy_pass http://localhost:3000/;
-  }
-}
 ```
 
 ## Updating to a New Version Safely

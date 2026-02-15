@@ -26,9 +26,10 @@ services:
       - db
 
   frontend:
-    build: ./frontend
-    environment:
-      VITE_API_BASE: http://159.69.6.89:3000
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://159.69.6.89:3000
     ports:
       - '8080:80'
     depends_on:

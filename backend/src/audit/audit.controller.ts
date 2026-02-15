@@ -10,6 +10,12 @@ import { RolesGuard } from '../common/roles.guard';
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
+  @Get('logs')
+  @Roles(Role.SYSTEM_ADMIN, Role.AUDITOR)
+  async logs() {
+    return this.auditService.getLogs();
+  }
+
   @Get('verify')
   @Roles(Role.SYSTEM_ADMIN)
   async verify() {

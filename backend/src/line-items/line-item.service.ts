@@ -19,7 +19,8 @@ export class LineItemService {
   }
 
   private ensureEditable(request: { status: RequestStatus; employeeId: string }, userId: string, role: Role) {
-    if (role !== Role.EMPLOYEE || request.employeeId !== userId) {
+    // Owner (EMPLOYEE or APPROVER acting on their own request) may edit
+    if (request.employeeId !== userId) {
       throw new ForbiddenException('Only owner can edit');
     }
     if (!EDITABLE_STATUSES.includes(request.status)) {
@@ -36,7 +37,8 @@ export class LineItemService {
         date: new Date(dto.date),
         description: dto.description,
         amount: dto.amount,
-        currency: dto.currency
+        currency: dto.currency,
+        lineItemType: (dto as any).lineItemType || null
       }
     });
     await this.auditService.recordEvent({
@@ -62,7 +64,8 @@ export class LineItemService {
         date: new Date(dto.date),
         description: dto.description,
         amount: dto.amount,
-        currency: dto.currency
+        currency: dto.currency,
+        lineItemType: (dto as any).lineItemType !== undefined ? (dto as any).lineItemType : undefined
       }
     });
     await this.auditService.recordEvent({

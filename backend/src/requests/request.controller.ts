@@ -2,8 +2,10 @@ import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/co
 import { RequestService } from './request.service';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
+import { Roles } from '../common/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/current-user.decorator';
 import { CreateRequestDto, UpdateRequestDto, ActionCommentDto } from './request.dto';
+import { Role } from '@prisma/client';
 
 @Controller('requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -13,6 +15,12 @@ export class RequestController {
   @Post()
   async create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateRequestDto) {
     return this.requestService.createRequest(user.sub, user.role as any, body);
+  }
+
+  @Get('audit-log')
+  @Roles(Role.SYSTEM_ADMIN, Role.AUDITOR)
+  async auditLog() {
+    return this.requestService.listRequestsForAudit();
   }
 
   @Get()
@@ -69,6 +77,24 @@ export class RequestController {
     @Body() body: ActionCommentDto
   ) {
     return this.requestService.returnRequest(user.sub, user.role as any, id, body.comment);
+  }
+
+  @Post(':id/finance/approve')
+  async financeApprove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: ActionCommentDto
+  ) {
+    return this.requestService.financeApprove(user.sub, user.role as any, id, body.comment);
+  }
+
+  @Post(':id/finance/return')
+  async financeReturn(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: ActionCommentDto
+  ) {
+    return this.requestService.financeReturn(user.sub, user.role as any, id, body.comment);
   }
 
   @Post(':id/finance/process')

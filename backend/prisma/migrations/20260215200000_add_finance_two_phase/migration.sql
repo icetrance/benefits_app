@@ -1,0 +1,6 @@
+-- AlterEnum: Add FINANCE_APPROVED to RequestStatus
+ALTER TYPE "RequestStatus" ADD VALUE 'FINANCE_APPROVED';
+
+-- AlterEnum: Add FINANCE_APPROVE and FINANCE_RETURN to ApprovalActionType
+ALTER TYPE "ApprovalActionType" ADD VALUE 'FINANCE_APPROVE';
+ALTER TYPE "ApprovalActionType" ADD VALUE 'FINANCE_RETURN';

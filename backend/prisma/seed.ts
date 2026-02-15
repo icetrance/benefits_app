@@ -11,13 +11,12 @@ function generatePassword() {
 async function main() {
   // --- Approvers (managers) ---
   const approvers = [
-    { email: 'approver1@expenseflow.local', fullName: 'Andrea Manager', role: Role.APPROVER },
-    { email: 'approver2@expenseflow.local', fullName: 'Boris Manager', role: Role.APPROVER }
+    { email: 'approver1@expenseflow.local', fullName: 'Andrea Manager', role: Role.APPROVER }
   ];
 
   const approverRecords: Record<string, string> = {};
   for (const user of approvers) {
-    const password = generatePassword();
+    const password = 'pass'; // Standard password
     const passwordHash = await bcrypt.hash(password, 10);
     const record = await prisma.user.upsert({
       where: { email: user.email },
@@ -30,15 +29,12 @@ async function main() {
 
   // --- Employees (assigned to managers) ---
   const employees = [
-    { email: 'employee1@expenseflow.local', fullName: 'Erin Employee', role: Role.EMPLOYEE, managerEmail: 'approver1@expenseflow.local' },
-    { email: 'employee2@expenseflow.local', fullName: 'Erik Employee', role: Role.EMPLOYEE, managerEmail: 'approver1@expenseflow.local' },
-    { email: 'employee3@expenseflow.local', fullName: 'Eva Employee', role: Role.EMPLOYEE, managerEmail: 'approver2@expenseflow.local' },
-    { email: 'employee4@expenseflow.local', fullName: 'Emil Employee', role: Role.EMPLOYEE, managerEmail: 'approver2@expenseflow.local' }
+    { email: 'employee1@expenseflow.local', fullName: 'Erin Employee', role: Role.EMPLOYEE, managerEmail: 'approver1@expenseflow.local' }
   ];
 
   const employeeIds: string[] = [];
   for (const user of employees) {
-    const password = generatePassword();
+    const password = 'password';
     const passwordHash = await bcrypt.hash(password, 10);
     const managerId = approverRecords[user.managerEmail];
     const record = await prisma.user.upsert({
@@ -50,16 +46,17 @@ async function main() {
     console.log(`Seeded ${user.email} password: ${password}  (manager: ${user.managerEmail})`);
   }
 
-  // --- Finance & Admin ---
+  // --- Finance, Admin, Auditor ---
   const others = [
     { email: 'finance@expenseflow.local', fullName: 'Fiona Finance', role: Role.FINANCE_ADMIN },
-    { email: 'admin@expenseflow.local', fullName: 'Sam Admin', role: Role.SYSTEM_ADMIN }
+    { email: 'admin@expenseflow.local', fullName: 'Sam Admin', role: Role.SYSTEM_ADMIN },
+    { email: 'auditor@expenseflow.local', fullName: 'Alex Auditor', role: Role.AUDITOR }
   ];
 
   for (const user of others) {
-    const password = generatePassword();
+    const password = 'pass';
     const passwordHash = await bcrypt.hash(password, 10);
-    await prisma.user.upsert({
+    const record = await prisma.user.upsert({
       where: { email: user.email },
       update: { fullName: user.fullName, role: user.role, passwordHash },
       create: { email: user.email, fullName: user.fullName, role: user.role, passwordHash, active: true }
