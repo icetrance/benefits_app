@@ -6,7 +6,12 @@ const prismaMock = {
     findUnique: jest.fn(),
     update: jest.fn(),
     create: jest.fn(),
-    count: jest.fn()
+    count: jest.fn(),
+    findMany: jest.fn()
+  },
+  user: {
+    findMany: jest.fn(),
+    findUnique: jest.fn()
   },
   approvalAction: {
     create: jest.fn()
@@ -46,6 +51,7 @@ describe('RequestService workflow', () => {
       reason: 'test'
     });
     prismaMock.expenseRequest.update.mockResolvedValue({ id: 'req', status: RequestStatus.APPROVED });
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'emp', managerId: 'approver' });
 
     const result = await service.approveRequest('approver', Role.APPROVER, 'req', 'ok');
     expect(result.status).toEqual(RequestStatus.APPROVED);
@@ -58,6 +64,38 @@ describe('RequestService workflow', () => {
         toStatus: RequestStatus.APPROVED,
         comment: 'ok'
       }
+    });
+  });
+
+
+  it('handles listRequests when legacy actions have null actorId', async () => {
+    const service = new RequestService(prismaMock as any, auditMock as any, notificationMock as any);
+    prismaMock.expenseRequest.findMany.mockResolvedValue([
+      {
+        id: 'req',
+        actions: [
+          { id: 'a1', actorId: null, actionType: ApprovalActionType.SUBMIT },
+          { id: 'a2', actorId: 'approver', actionType: ApprovalActionType.APPROVE }
+        ],
+        category: {},
+        employee: {}
+      }
+    ]);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: 'approver', fullName: 'Approver One', email: 'approver@example.com' }
+    ]);
+
+    const [request] = await service.listRequests('employee', Role.EMPLOYEE);
+
+    expect(prismaMock.user.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['approver'] } },
+      select: { id: true, fullName: true, email: true }
+    });
+    expect(request.actions[0].actor).toBeNull();
+    expect(request.actions[1].actor).toEqual({
+      id: 'approver',
+      fullName: 'Approver One',
+      email: 'approver@example.com'
     });
   });
 
