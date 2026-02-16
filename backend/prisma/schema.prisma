@@ -116,14 +116,14 @@ model ReceiptAttachment {
 model ApprovalAction {
   id         String             @id @default(uuid())
   requestId  String
-  actorId    String
+  actorId    String?
   actionType ApprovalActionType
   fromStatus RequestStatus
   toStatus   RequestStatus
   comment    String?
   createdAt  DateTime           @default(now())
   request    ExpenseRequest     @relation(fields: [requestId], references: [id])
-  actor      User               @relation("ApprovalActor", fields: [actorId], references: [id])
+  actor      User?              @relation("ApprovalActor", fields: [actorId], references: [id])
 }
 
 model AuditLog {
