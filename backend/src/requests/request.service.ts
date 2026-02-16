@@ -12,6 +12,7 @@ const FINANCE_PAYABLE_STATUSES: RequestStatus[] = [
   RequestStatus.APPROVED,
   RequestStatus.PAYMENT_PROCESSING
 ];
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class RequestService {
@@ -37,12 +38,15 @@ export class RequestService {
   private async attachActionActors<T extends { actions: Array<{ actorId: string | null }> }>(requests: T[]): Promise<Array<T & {
     actions: Array<T['actions'][number] & { actor: { id: string; fullName: string; email: string } | null }>;
   }>> {
+    const isValidUserId = (value: string | null): value is string =>
+      typeof value === 'string' && UUID_V4_REGEX.test(value.trim());
+
     const actorIds = Array.from(
       new Set(
         requests.flatMap((request) =>
           request.actions
             .map((action) => action.actorId)
-            .filter((actorId): actorId is string => typeof actorId === 'string' && actorId.trim().length > 0)
+            .filter(isValidUserId)
         )
       )
     );
@@ -64,7 +68,7 @@ export class RequestService {
       ...request,
       actions: request.actions.map((action) => ({
         ...action,
-        actor: action.actorId ? actorById.get(action.actorId) || null : null
+        actor: isValidUserId(action.actorId) ? actorById.get(action.actorId) || null : null
       }))
     }));
   }
