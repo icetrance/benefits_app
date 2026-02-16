@@ -34,6 +34,33 @@ export class RequestService {
     return request;
   }
 
+  private async attachActionActors<T extends { actions: Array<{ actorId: string }> }>(requests: T[]): Promise<Array<T & {
+    actions: Array<T['actions'][number] & { actor: { id: string; fullName: string; email: string } | null }>;
+  }>> {
+    const actorIds = Array.from(new Set(requests.flatMap((request) => request.actions.map((action) => action.actorId))));
+
+    if (actorIds.length === 0) {
+      return requests.map((request) => ({
+        ...request,
+        actions: request.actions.map((action) => ({ ...action, actor: null }))
+      }));
+    }
+
+    const actors = await this.prisma.user.findMany({
+      where: { id: { in: actorIds } },
+      select: { id: true, fullName: true, email: true }
+    });
+    const actorById = new Map(actors.map((actor) => [actor.id, actor]));
+
+    return requests.map((request) => ({
+      ...request,
+      actions: request.actions.map((action) => ({
+        ...action,
+        actor: actorById.get(action.actorId) || null
+      }))
+    }));
+  }
+
   /** Verify that the request's employee is a direct report of the actor (approver). */
   private async ensureTeamMember(actorId: string, role: Role, employeeId: string) {
     if (role === Role.SYSTEM_ADMIN) return; // admins bypass
@@ -83,27 +110,31 @@ export class RequestService {
     const includeRelations = {
       category: true,
       employee: true,
-      actions: { include: { actor: true } }
+      actions: true
     };
 
+    let requests;
     if (role === Role.EMPLOYEE) {
       // Employees see only their own requests
-      return this.prisma.expenseRequest.findMany({
+      requests = await this.prisma.expenseRequest.findMany({
         where: { employeeId: userId },
         include: includeRelations
       });
+      return this.attachActionActors(requests);
     }
 
     if (role === Role.APPROVER) {
       // Approvers see only their direct reports' requests
-      return this.prisma.expenseRequest.findMany({
+      requests = await this.prisma.expenseRequest.findMany({
         where: { employee: { managerId: userId } },
         include: includeRelations
       });
+      return this.attachActionActors(requests);
     }
 
     // FINANCE_ADMIN and SYSTEM_ADMIN see all requests
-    return this.prisma.expenseRequest.findMany({ include: includeRelations });
+    requests = await this.prisma.expenseRequest.findMany({ include: includeRelations });
+    return this.attachActionActors(requests);
   }
 
   async getRequest(userId: string, role: Role, id: string) {
@@ -117,10 +148,17 @@ export class RequestService {
         throw new ForbiddenException('Not allowed');
       }
     }
-    return this.prisma.expenseRequest.findUnique({
+    const requestWithActions = await this.prisma.expenseRequest.findUnique({
       where: { id },
-      include: { lineItems: true, receipts: true, actions: { include: { actor: true } }, category: true, employee: true }
+      include: { lineItems: true, receipts: true, actions: true, category: true, employee: true }
     });
+
+    if (!requestWithActions) {
+      throw new NotFoundException('Request not found');
+    }
+
+    const [requestWithActors] = await this.attachActionActors([requestWithActions]);
+    return requestWithActors;
   }
 
   async updateRequest(userId: string, role: Role, id: string, dto: UpdateRequestDto) {
