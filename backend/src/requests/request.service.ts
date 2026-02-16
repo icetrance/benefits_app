@@ -34,10 +34,18 @@ export class RequestService {
     return request;
   }
 
-  private async attachActionActors<T extends { actions: Array<{ actorId: string }> }>(requests: T[]): Promise<Array<T & {
+  private async attachActionActors<T extends { actions: Array<{ actorId: string | null }> }>(requests: T[]): Promise<Array<T & {
     actions: Array<T['actions'][number] & { actor: { id: string; fullName: string; email: string } | null }>;
   }>> {
-    const actorIds = Array.from(new Set(requests.flatMap((request) => request.actions.map((action) => action.actorId))));
+    const actorIds = Array.from(
+      new Set(
+        requests.flatMap((request) =>
+          request.actions
+            .map((action) => action.actorId)
+            .filter((actorId): actorId is string => typeof actorId === 'string' && actorId.trim().length > 0)
+        )
+      )
+    );
 
     if (actorIds.length === 0) {
       return requests.map((request) => ({
@@ -56,7 +64,7 @@ export class RequestService {
       ...request,
       actions: request.actions.map((action) => ({
         ...action,
-        actor: actorById.get(action.actorId) || null
+        actor: action.actorId ? actorById.get(action.actorId) || null : null
       }))
     }));
   }
