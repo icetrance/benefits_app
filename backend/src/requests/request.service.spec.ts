@@ -75,28 +75,30 @@ describe('RequestService workflow', () => {
         id: 'req',
         actions: [
           { id: 'a1', actorId: null, actionType: ApprovalActionType.SUBMIT },
-          { id: 'a2', actorId: 'approver', actionType: ApprovalActionType.APPROVE }
+          { id: 'a2', actorId: '11111111-1111-4111-8111-111111111111', actionType: ApprovalActionType.APPROVE },
+          { id: 'a3', actorId: 'legacy-user-id', actionType: ApprovalActionType.APPROVE }
         ],
         category: {},
         employee: {}
       }
     ]);
     prismaMock.user.findMany.mockResolvedValue([
-      { id: 'approver', fullName: 'Approver One', email: 'approver@example.com' }
+      { id: '11111111-1111-4111-8111-111111111111', fullName: 'Approver One', email: 'approver@example.com' }
     ]);
 
     const [request] = await service.listRequests('employee', Role.EMPLOYEE);
 
     expect(prismaMock.user.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ['approver'] } },
+      where: { id: { in: ['11111111-1111-4111-8111-111111111111'] } },
       select: { id: true, fullName: true, email: true }
     });
     expect(request.actions[0].actor).toBeNull();
     expect(request.actions[1].actor).toEqual({
-      id: 'approver',
+      id: '11111111-1111-4111-8111-111111111111',
       fullName: 'Approver One',
       email: 'approver@example.com'
     });
+    expect(request.actions[2].actor).toBeNull();
   });
 
   it('rejects finance processing if not approved', async () => {
