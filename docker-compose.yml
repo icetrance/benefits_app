@@ -9,6 +9,9 @@ services:
       POSTGRES_DB: expenseflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Security: no published ports keeps PostgreSQL reachable only by containers on the internal Docker network.
+    networks:
+      - app_network
 
   backend:
     build: ./backend
@@ -18,19 +21,42 @@ services:
       UPLOAD_DIR: /app/uploads
     volumes:
       - ./uploads:/app/uploads
-    ports:
-      - '3000:3000'
+    # Security: backend API is not exposed on the host; it is reachable only through the reverse proxy.
     depends_on:
       - db
+    networks:
+      - app_network
 
   frontend:
-    build: ./frontend
-    environment:
-      VITE_API_BASE: http://159.69.6.89:3000
-    ports:
-      - '8080:80'
+    build:
+      context: ./frontend
+      args:
+        # Security: use a relative API path so browser traffic goes through the reverse proxy instead of a hardcoded public backend URL.
+        VITE_API_BASE: /api
+    # Security: no host port mapping; frontend is only reachable via the reverse proxy service.
     depends_on:
       - backend
+    networks:
+      - app_network
+
+  reverse-proxy:
+    image: nginx:1.25-alpine
+    # Security: single public entrypoint (HTTP/8080) limits exposed surface area.
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # Security: reverse proxy mediates access and forwards only intended paths.
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - app_network
 
 volumes:
   postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
+    # Security: user-defined bridge network provides service-name DNS and isolates east-west traffic from other stacks.
