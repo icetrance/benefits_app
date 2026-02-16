@@ -36,6 +36,7 @@ enum ApprovalActionType {
   APPROVE
   REJECT
   RETURN
+  FINANCE_APPROVE
   FINANCE_PROCESS
   PAID
 }
