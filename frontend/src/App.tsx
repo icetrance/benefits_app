@@ -751,11 +751,25 @@ function AdminUsers() {
   const [form, setForm] = useState({ email: '', fullName: '', password: '', role: 'EMPLOYEE', managerId: '', benefitName: '', budgetLimit: '' });
   const [pwForm, setPwForm] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
     api.get('/admin/users').then(setUsers).catch(() => setUsers([]));
     api.get('/admin/benefits').then(setBenefits).catch(() => setBenefits([]));
   }, [auth.token]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get('/admin/users');
+      setUsers(Array.isArray(data) ? data : []);
+      setError('');
+    } catch (err) {
+      setUsers([]);
+      setError(err instanceof Error ? err.message : 'Failed to load users.');
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => { if (auth.token) load(); }, [load, auth.token]);
 
@@ -823,24 +837,45 @@ function AdminUsers() {
 
   const onDeactivate = async (id: string) => {
     if (!window.confirm('Deactivate this user?')) return;
-    await api.del(`/admin/users/${id}`);
-    load();
+    setError('');
+    try {
+      await api.del(`/admin/users/${id}`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate user.');
+    }
   };
   const onPermanentDelete = async (id: string) => {
     if (!window.confirm('⚠️ PERMANENTLY DELETE this user and all their data?\n\nThis action cannot be undone.')) return;
-    await api.del(`/admin/users/${id}/permanent`);
-    load();
+    setError('');
+    try {
+      await api.del(`/admin/users/${id}/permanent`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to permanently delete user.');
+    }
   };
 
   return (
     <div>
       <div className="page-header">
         <div><h1>User Management</h1><p className="muted">{users.length} users</p></div>
-        <button onClick={openCreate}>+ Add User</button>
+        <div className="table-actions">
+          <button className="secondary" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          <button onClick={openCreate}>+ Add User</button>
+        </div>
       </div>
+      {error && <p className="error">{error}</p>}
       <table>
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Manager</th><th>Status</th><th>Reports</th><th>Actions</th></tr></thead>
         <tbody>
+          {!loading && users.length === 0 && (
+            <tr>
+              <td colSpan={7} className="empty-state" style={{ textAlign: 'center', padding: '1rem' }}>
+                No users found.
+              </td>
+            </tr>
+          )}
           {users.map(u => (
             <tr key={u.id}>
               <td style={{ fontWeight: 500, color: 'var(--text)' }}>{u.fullName}</td>
