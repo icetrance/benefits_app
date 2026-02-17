@@ -377,6 +377,20 @@ function MyRequests() {
     finally { setSaving(false); }
   };
 
+
+  const onCancelDraft = async (id: string) => {
+    const confirmed = window.confirm('Cancel this draft request? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await api.del(`/requests/${id}`);
+      load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to cancel draft request.';
+      window.alert(message);
+    }
+  };
+
   const openReqs = requests.filter(i => !HISTORY_STATUSES.has(i.status));
   const historyReqs = requests.filter(i => HISTORY_STATUSES.has(i.status));
   const historyMonths = [...new Set(historyReqs.map(i => monthKey(i.submittedAt)).filter(Boolean))].sort().reverse();
@@ -432,6 +446,7 @@ function MyRequests() {
                 <td>
                   <div className="table-actions">
                     {(i.status === 'DRAFT' || i.status === 'RETURNED') && <button className="sm" onClick={() => api.post(`/requests/${i.id}/submit`).then(load)}>Submit</button>}
+                    {i.status === 'DRAFT' && <button className="sm secondary" onClick={() => onCancelDraft(i.id)}>Cancel</button>}
                     {(i.status === 'SUBMITTED' || i.status === 'UNDER_REVIEW') && <button className="sm secondary" onClick={() => api.post(`/requests/${i.id}/withdraw`).then(load)}>Withdraw</button>}
                   </div>
                 </td>

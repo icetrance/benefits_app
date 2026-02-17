@@ -311,6 +311,36 @@ export class RequestService {
     return updated;
   }
 
+
+
+  async cancelDraftRequest(userId: string, role: Role, id: string) {
+    void role;
+    const request = await this.getRequestOrThrow(id);
+    if (request.employeeId !== userId) {
+      throw new ForbiddenException('Only owner can cancel draft');
+    }
+    if (request.status !== RequestStatus.DRAFT) {
+      throw new BadRequestException('Only draft requests can be canceled');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.approvalAction.deleteMany({ where: { requestId: id } }),
+      this.prisma.expenseLineItem.deleteMany({ where: { requestId: id } }),
+      this.prisma.receiptAttachment.deleteMany({ where: { requestId: id } }),
+      this.prisma.expenseRequest.delete({ where: { id } })
+    ]);
+
+    await this.auditService.recordEvent({
+      actorId: userId,
+      entityType: 'ExpenseRequest',
+      entityId: id,
+      eventType: 'CANCEL_DRAFT',
+      eventData: { requestNumber: request.requestNumber, status: request.status }
+    });
+
+    return { success: true };
+  }
+
   async approveRequest(actorId: string, role: Role, id: string, comment?: string) {
     if (role !== Role.APPROVER && role !== Role.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only approvers can approve');

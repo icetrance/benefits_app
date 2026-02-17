@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { RequestService } from './request.service';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
@@ -42,6 +42,11 @@ export class RequestController {
   @Post(':id/withdraw')
   async withdraw(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.requestService.withdrawRequest(user.sub, user.role as any, id);
+  }
+
+  @Delete(':id')
+  async cancelDraft(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.requestService.cancelDraftRequest(user.sub, user.role as any, id);
   }
 
   @Post(':id/approve')
