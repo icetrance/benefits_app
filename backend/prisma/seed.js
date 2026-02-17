@@ -74,7 +74,8 @@ async function main() {
     { name: 'Eyeglass', expenseType: 'BENEFIT', defaultBudget: 200, requiresReceipt: true },
     { name: 'Fitness', expenseType: 'BENEFIT', defaultBudget: 500, requiresReceipt: true },
     { name: 'Travel Expenses', expenseType: 'TRAVEL', defaultBudget: 0, requiresReceipt: true },
-    { name: 'Client Entertainment', expenseType: 'PROTOCOL', defaultBudget: 0, requiresReceipt: true }
+    { name: 'Business Lunch', expenseType: 'PROTOCOL', defaultBudget: 0, requiresReceipt: true },
+    { name: 'Business Dinner', expenseType: 'PROTOCOL', defaultBudget: 0, requiresReceipt: true }
   ];
 
   const categoryRecords = {};

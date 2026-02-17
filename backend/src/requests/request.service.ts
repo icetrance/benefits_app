@@ -83,7 +83,7 @@ export class RequestService {
   }
 
   async createRequest(userId: string, role: Role, dto: CreateRequestDto) {
-    // Removed ensureEmployee(role) check
+    void role;
     const count = await this.prisma.expenseRequest.count();
     const requestNumber = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
 
@@ -91,6 +91,23 @@ export class RequestService {
     const category = await this.prisma.expenseCategory.findUnique({ where: { id: dto.categoryId } });
     if (!category) {
       throw new BadRequestException('Invalid category');
+    }
+
+    if (category.expenseType === 'BENEFIT') {
+      const currentYear = new Date().getFullYear();
+      const budget = await this.prisma.budgetAllocation.findUnique({
+        where: {
+          userId_categoryId_year: {
+            userId,
+            categoryId: category.id,
+            year: currentYear
+          }
+        }
+      });
+
+      if (!budget || budget.spent >= budget.allocated) {
+        throw new BadRequestException('Budget exhausted for selected benefit category');
+      }
     }
 
     const request = await this.prisma.expenseRequest.create({
