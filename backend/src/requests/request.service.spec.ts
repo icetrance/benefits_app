@@ -2,6 +2,13 @@ import { RequestService } from './request.service';
 import { RequestStatus, Role, ApprovalActionType } from '@prisma/client';
 
 const prismaMock = {
+  expenseCategory: {
+    findUnique: jest.fn()
+  },
+  budgetAllocation: {
+    findUnique: jest.fn(),
+    update: jest.fn()
+  },
   expenseRequest: {
     findUnique: jest.fn(),
     update: jest.fn(),
@@ -29,6 +36,7 @@ const notificationMock = {
 describe('RequestService workflow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    prismaMock.expenseCategory.findUnique.mockResolvedValue({ id: 'cat', expenseType: 'TRAVEL', name: 'Travel' });
   });
 
   it('prevents employee from approving', async () => {
@@ -66,7 +74,6 @@ describe('RequestService workflow', () => {
       }
     });
   });
-
 
   it('handles listRequests when legacy actions have null actorId', async () => {
     const service = new RequestService(prismaMock as any, auditMock as any, notificationMock as any);
@@ -116,5 +123,47 @@ describe('RequestService workflow', () => {
     await expect(service.financeProcess('finance', Role.FINANCE_ADMIN, 'req')).rejects.toThrow(
       'Request must be approved'
     );
+  });
+
+  it('rejects benefit draft creation when request amount exceeds remaining budget', async () => {
+    const service = new RequestService(prismaMock as any, auditMock as any, notificationMock as any);
+    prismaMock.expenseRequest.count.mockResolvedValue(0);
+    prismaMock.expenseCategory.findUnique.mockResolvedValue({ id: 'benefit-cat', expenseType: 'BENEFIT', name: 'Eyeglass' });
+    prismaMock.budgetAllocation.findUnique.mockResolvedValue({ allocated: 200, spent: 0 });
+
+    await expect(service.createRequest('emp', Role.EMPLOYEE, {
+      categoryId: 'benefit-cat',
+      reason: 'new glasses',
+      currency: 'EUR',
+      totalAmount: 1000
+    } as any)).rejects.toThrow('exceeds remaining budget');
+  });
+
+  it('converts non-EUR benefit amount when updating spent budget on paid', async () => {
+    const service = new RequestService(prismaMock as any, auditMock as any, notificationMock as any);
+    prismaMock.expenseRequest.findUnique.mockResolvedValue({
+      id: 'req',
+      status: RequestStatus.APPROVED,
+      employeeId: 'emp',
+      categoryId: 'benefit-cat',
+      totalAmount: 100,
+      currency: 'USD',
+      submittedAt: new Date('2026-01-10T00:00:00.000Z'),
+      requestNumber: 'REQ-2026-00001',
+      employee: { email: 'emp@example.com' },
+      category: { expenseType: 'BENEFIT' },
+      receipts: [],
+      lineItems: [],
+      reason: 'test'
+    });
+    prismaMock.expenseRequest.update.mockResolvedValue({ id: 'req', status: RequestStatus.PAID });
+    prismaMock.budgetAllocation.findUnique.mockResolvedValue({ id: 'bud', spent: 50, allocated: 200 });
+
+    await service.financePaid('finance', Role.FINANCE_ADMIN, 'req');
+
+    expect(prismaMock.budgetAllocation.update).toHaveBeenCalledWith({
+      where: { id: 'bud' },
+      data: { spent: 142 }
+    });
   });
 });

@@ -1,4 +1,5 @@
-import { IsString, IsNumber, IsUUID, IsOptional, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsUUID, IsOptional, IsNotEmpty, IsIn } from 'class-validator';
+import { SUPPORTED_CURRENCIES } from '../common/currency';
 
 export class CreateRequestDto {
   @IsUUID()
@@ -11,6 +12,7 @@ export class CreateRequestDto {
 
   @IsString()
   @IsNotEmpty()
+  @IsIn(SUPPORTED_CURRENCIES)
   currency!: string;
 
   @IsNumber()
@@ -40,6 +42,7 @@ export class UpdateRequestDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(SUPPORTED_CURRENCIES)
   currency?: string;
 
   @IsOptional()

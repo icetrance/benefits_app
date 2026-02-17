@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { RequestStatus, Role, ApprovalActionType } from '@prisma/client';
 import { CreateRequestDto, UpdateRequestDto } from './request.dto';
 import { NotificationService } from '../notifications/notification.service';
+import { convertToEur, isSupportedCurrency } from '../common/currency';
 
 const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.RETURNED];
 const REVIEW_STATUSES: RequestStatus[] = [RequestStatus.UNDER_REVIEW, RequestStatus.SUBMITTED];
@@ -73,6 +74,61 @@ export class RequestService {
     }));
   }
 
+
+
+  private toMoney(value: number) {
+    return `€${value.toFixed(2)}`;
+  }
+
+  private async ensureBenefitBudgetWithinLimit(userId: string, categoryId: string, currency: string, totalAmount: number) {
+    if (!isSupportedCurrency(currency)) {
+      throw new BadRequestException('Unsupported currency. Allowed values: EUR, LEI, USD');
+    }
+
+    const category = await this.prisma.expenseCategory.findUnique({ where: { id: categoryId } });
+    if (!category) {
+      throw new BadRequestException('Invalid category');
+    }
+
+    if (category.expenseType !== 'BENEFIT') {
+      return category;
+    }
+
+    const currentYear = new Date().getFullYear();
+    const budget = await this.prisma.budgetAllocation.findUnique({
+      where: {
+        userId_categoryId_year: {
+          userId,
+          categoryId: category.id,
+          year: currentYear
+        }
+      }
+    });
+
+    if (!budget) {
+      throw new BadRequestException(
+        `Cannot create benefit request for "${category.name}": no budget allocation exists for ${currentYear}.`,
+      );
+    }
+
+    const requestedAmountEur = convertToEur(totalAmount, currency);
+    const remaining = Math.max(budget.allocated - budget.spent, 0);
+
+    if (remaining <= 0) {
+      throw new BadRequestException(
+        `Cannot create benefit request for "${category.name}": budget exhausted (spent ${this.toMoney(budget.spent)} of ${this.toMoney(budget.allocated)}, remaining ${this.toMoney(remaining)}).`,
+      );
+    }
+
+    if (requestedAmountEur > remaining) {
+      throw new BadRequestException(
+        `Cannot create benefit request for "${category.name}": requested amount (${this.toMoney(requestedAmountEur)} equivalent) exceeds remaining budget (${this.toMoney(remaining)}).`,
+      );
+    }
+
+    return category;
+  }
+
   /** Verify that the request's employee is a direct report of the actor (approver). */
   private async ensureTeamMember(actorId: string, role: Role, employeeId: string) {
     if (role === Role.SYSTEM_ADMIN) return; // admins bypass
@@ -87,37 +143,7 @@ export class RequestService {
     const count = await this.prisma.expenseRequest.count();
     const requestNumber = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
 
-    // Determine expense type from category
-    const category = await this.prisma.expenseCategory.findUnique({ where: { id: dto.categoryId } });
-    if (!category) {
-      throw new BadRequestException('Invalid category');
-    }
-
-    if (category.expenseType === 'BENEFIT') {
-      const currentYear = new Date().getFullYear();
-      const budget = await this.prisma.budgetAllocation.findUnique({
-        where: {
-          userId_categoryId_year: {
-            userId,
-            categoryId: category.id,
-            year: currentYear
-          }
-        }
-      });
-
-      if (!budget) {
-        throw new BadRequestException(
-          `Cannot create benefit request for "${category.name}": no budget allocation exists for ${currentYear}.`,
-        );
-      }
-
-      if (budget.spent >= budget.allocated) {
-        const remaining = Math.max(budget.allocated - budget.spent, 0);
-        throw new BadRequestException(
-          `Cannot create benefit request for "${category.name}": budget exhausted (spent €${budget.spent.toFixed(2)} of €${budget.allocated.toFixed(2)}, remaining €${remaining.toFixed(2)}).`,
-        );
-      }
-    }
+    const category = await this.ensureBenefitBudgetWithinLimit(userId, dto.categoryId, dto.currency, dto.totalAmount);
 
     const request = await this.prisma.expenseRequest.create({
       data: {
@@ -207,6 +233,12 @@ export class RequestService {
     if (!EDITABLE_STATUSES.includes(request.status)) {
       throw new BadRequestException('Request cannot be edited in current status');
     }
+
+    const nextCategoryId = dto.categoryId ?? request.categoryId;
+    const nextCurrency = dto.currency ?? request.currency;
+    const nextTotalAmount = dto.totalAmount ?? request.totalAmount;
+    await this.ensureBenefitBudgetWithinLimit(userId, nextCategoryId, nextCurrency, nextTotalAmount);
+
     const invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : undefined;
     const updated = await this.prisma.expenseRequest.update({
       where: { id },
@@ -247,6 +279,8 @@ export class RequestService {
       throw new BadRequestException('Request cannot be submitted');
     }
     await this.validateSubmission(id);
+    await this.ensureBenefitBudgetWithinLimit(request.employeeId, request.categoryId, request.currency, request.totalAmount);
+
     const submitted = await this.prisma.expenseRequest.update({
       where: { id },
       data: {
@@ -529,9 +563,10 @@ export class RequestService {
         where: { userId_categoryId_year: { userId: request.employeeId, categoryId: request.categoryId, year } }
       });
       if (budget) {
+        const spentAmountEur = convertToEur(request.totalAmount, request.currency);
         await this.prisma.budgetAllocation.update({
           where: { id: budget.id },
-          data: { spent: budget.spent + request.totalAmount }
+          data: { spent: budget.spent + spentAmountEur }
         });
       }
     }

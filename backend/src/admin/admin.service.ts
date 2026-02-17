@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { Role, ExpenseType } from '@prisma/client';
+import { Role, ExpenseType, RequestStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -10,6 +10,89 @@ export class AdminService {
         private readonly prisma: PrismaService,
         private readonly auditService: AuditService
     ) { }
+
+
+
+    async listBenefits() {
+        return this.prisma.expenseCategory.findMany({
+            where: { expenseType: ExpenseType.BENEFIT },
+            orderBy: { name: 'asc' }
+        });
+    }
+
+    async createBenefit(actorId: string, data: { name: string; budgetLimit: number }) {
+        const name = data.name.trim();
+        if (!name) {
+            throw new BadRequestException('Benefit name is required');
+        }
+        if (data.budgetLimit <= 0) {
+            throw new BadRequestException('Benefit budget limit must be greater than 0');
+        }
+
+        const category = await this.prisma.expenseCategory.create({
+            data: {
+                name,
+                expenseType: ExpenseType.BENEFIT,
+                defaultBudget: data.budgetLimit,
+                requiresReceipt: true,
+                active: true
+            }
+        });
+
+        const currentYear = new Date().getFullYear();
+        const employees = await this.prisma.user.findMany({
+            where: { role: Role.EMPLOYEE, active: true },
+            select: { id: true }
+        });
+
+        for (const employee of employees) {
+            await this.prisma.budgetAllocation.upsert({
+                where: { userId_categoryId_year: { userId: employee.id, categoryId: category.id, year: currentYear } },
+                update: { allocated: data.budgetLimit },
+                create: { userId: employee.id, categoryId: category.id, year: currentYear, allocated: data.budgetLimit, spent: 0 }
+            });
+        }
+
+        await this.auditService.recordEvent({
+            actorId,
+            entityType: 'ExpenseCategory',
+            entityId: category.id,
+            eventType: 'ADMIN_CREATE_BENEFIT',
+            eventData: { name, budgetLimit: data.budgetLimit }
+        });
+
+        return category;
+    }
+
+    async deleteBenefit(actorId: string, id: string) {
+        const benefit = await this.prisma.expenseCategory.findUnique({ where: { id } });
+        if (!benefit || benefit.expenseType !== ExpenseType.BENEFIT) {
+            throw new NotFoundException('Benefit not found');
+        }
+
+        const activeRequestCount = await this.prisma.expenseRequest.count({
+            where: {
+                categoryId: id,
+                status: { in: [RequestStatus.DRAFT, RequestStatus.SUBMITTED, RequestStatus.UNDER_REVIEW, RequestStatus.APPROVED, RequestStatus.PAYMENT_PROCESSING] }
+            }
+        });
+        if (activeRequestCount > 0) {
+            throw new BadRequestException('Cannot remove benefit with active requests');
+        }
+
+        await this.prisma.budgetAllocation.deleteMany({ where: { categoryId: id } });
+        await this.prisma.expenseCategory.delete({ where: { id } });
+
+        await this.auditService.recordEvent({
+            actorId,
+            entityType: 'ExpenseCategory',
+            entityId: id,
+            eventType: 'ADMIN_DELETE_BENEFIT',
+            eventData: { name: benefit.name }
+        });
+
+        return { success: true };
+    }
 
     async listUsers() {
         return this.prisma.user.findMany({

@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsNotEmpty, IsNumber, Min } from 'class-validator';
 
 export class CreateUserDto {
     @IsEmail()
@@ -43,4 +43,15 @@ export class ResetPasswordDto {
     @IsString()
     @IsNotEmpty()
     password!: string;
+}
+
+
+export class CreateBenefitDto {
+    @IsString()
+    @IsNotEmpty()
+    name!: string;
+
+    @IsNumber()
+    @Min(0.01)
+    budgetLimit!: number;
 }

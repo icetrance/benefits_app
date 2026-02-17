@@ -114,6 +114,7 @@ function useApi(authToken: string) {
 
 /* ── Utilities ─── */
 const HISTORY_STATUSES = new Set(['PAID', 'REJECTED', 'RETURNED', 'APPROVED']);
+const CURRENCIES = ['EUR', 'LEI', 'USD'];
 
 function statusClass(s?: string) {
   switch (s) {
@@ -420,7 +421,7 @@ function MyRequests() {
               </select>
             </label>
             <label>Amount <input type="number" min="0" step="0.01" value={form.totalAmount} onChange={e => setForm({ ...form, totalAmount: e.target.value })} required /></label>
-            <label>Currency <input value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })} required /></label>
+            <label>Currency <select value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })} required>{CURRENCIES.map(currency => <option key={currency} value={currency}>{currency}</option>)}</select></label>
             <label>Invoice # <input value={form.invoiceNumber} onChange={e => setForm({ ...form, invoiceNumber: e.target.value })} required /></label>
             <label>Invoice date <input type="date" value={form.invoiceDate} onChange={e => setForm({ ...form, invoiceDate: e.target.value })} required /></label>
             <label>Supplier <input value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} required /></label>
@@ -744,13 +745,18 @@ function AdminUsers() {
   const auth = useAuth();
   const api = useApi(auth.token);
   const [users, setUsers] = useState<any[]>([]);
+  const [benefits, setBenefits] = useState<any[]>([]);
   const [showModal, setShowModal] = useState<'create' | 'edit' | 'password' | null>(null);
   const [editUser, setEditUser] = useState<any>(null);
-  const [form, setForm] = useState({ email: '', fullName: '', password: '', role: 'EMPLOYEE', managerId: '' });
+  const [form, setForm] = useState({ email: '', fullName: '', password: '', role: 'EMPLOYEE', managerId: '', benefitName: '', budgetLimit: '' });
   const [pwForm, setPwForm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const load = useCallback(() => {
+    api.get('/admin/users').then(setUsers).catch(() => setUsers([]));
+    api.get('/admin/benefits').then(setBenefits).catch(() => setBenefits([]));
+  }, [auth.token]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -770,13 +776,13 @@ function AdminUsers() {
   const approvers = users.filter(u => u.role === 'APPROVER');
 
   const openCreate = () => {
-    setForm({ email: '', fullName: '', password: '', role: 'EMPLOYEE', managerId: '' });
+    setForm({ email: '', fullName: '', password: '', role: 'EMPLOYEE', managerId: '', benefitName: '', budgetLimit: '' });
     setError('');
     setShowModal('create');
   };
   const openEdit = (u: any) => {
     setEditUser(u);
-    setForm({ email: u.email, fullName: u.fullName, password: '', role: u.role, managerId: u.managerId || '' });
+    setForm({ email: u.email, fullName: u.fullName, password: '', role: u.role, managerId: u.managerId || '', benefitName: '', budgetLimit: '' });
     setError('');
     setShowModal('edit');
   };
@@ -803,6 +809,32 @@ function AdminUsers() {
       setShowModal(null);
     } catch { setError('Failed to reset password.'); }
   };
+
+
+  const onCreateBenefit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.post('/admin/benefits', { name: form.benefitName, budgetLimit: Number(form.budgetLimit) });
+      setForm(prev => ({ ...prev, benefitName: '', budgetLimit: '' }));
+      load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create benefit.';
+      setError(message);
+    }
+  };
+
+  const onDeleteBenefit = async (id: string) => {
+    if (!window.confirm('Remove this benefit? Existing paid history remains, but active usage will stop.')) return;
+    try {
+      await api.del(`/admin/benefits/${id}`);
+      load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to remove benefit.';
+      window.alert(message);
+    }
+  };
+
   const onDeactivate = async (id: string) => {
     if (!window.confirm('Deactivate this user?')) return;
     setError('');
@@ -864,6 +896,41 @@ function AdminUsers() {
           ))}
         </tbody>
       </table>
+
+
+
+      <div className="section-gap" />
+      <div className="page-header">
+        <div><h2>Benefit Catalog</h2><p className="muted">Add or remove benefit categories and annual budget limits</p></div>
+      </div>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <form onSubmit={onCreateBenefit} className="form-grid">
+          <label>Benefit name
+            <input value={form.benefitName} onChange={e => setForm({ ...form, benefitName: e.target.value })} required />
+          </label>
+          <label>Budget limit (EUR)
+            <input type="number" min="0.01" step="0.01" value={form.budgetLimit} onChange={e => setForm({ ...form, budgetLimit: e.target.value })} required />
+          </label>
+          <div className="form-actions"><button type="submit">Add Benefit</button></div>
+        </form>
+      </div>
+      <table>
+        <thead><tr><th>Benefit</th><th>Annual Budget (EUR)</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          {benefits.map(benefit => (
+            <tr key={benefit.id}>
+              <td>{benefit.name}</td>
+              <td>{benefit.defaultBudget}</td>
+              <td><span className={benefit.active ? 'active-badge' : 'inactive-badge'}>{benefit.active ? '● Active' : '○ Inactive'}</span></td>
+              <td><button className="sm danger" onClick={() => onDeleteBenefit(benefit.id)}>Remove</button></td>
+            </tr>
+          ))}
+          {benefits.length === 0 && (
+            <tr><td colSpan={4}><p className="empty-state">No benefits configured</p></td></tr>
+          )}
+        </tbody>
+      </table>
+
 
       {showModal === 'create' && (
         <div className="modal-overlay" onClick={() => setShowModal(null)}>
