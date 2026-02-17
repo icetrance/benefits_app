@@ -753,18 +753,19 @@ function AdminUsers() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(() => {
-    api.get('/admin/users').then(setUsers).catch(() => setUsers([]));
-    api.get('/admin/benefits').then(setBenefits).catch(() => setBenefits([]));
-  }, [auth.token]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get('/admin/users');
-      setUsers(Array.isArray(data) ? data : []);
+      const [usersData, benefitsData] = await Promise.all([
+        api.get('/admin/users'),
+        api.get('/admin/benefits'),
+      ]);
+      setUsers(Array.isArray(usersData) ? usersData : []);
+      setBenefits(Array.isArray(benefitsData) ? benefitsData : []);
       setError('');
     } catch (err) {
       setUsers([]);
+      setBenefits([]);
       setError(err instanceof Error ? err.message : 'Failed to load users.');
     } finally {
       setLoading(false);
