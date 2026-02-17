@@ -4,13 +4,30 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/current-user.decorator';
-import { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './admin.dto';
+import { CreateUserDto, UpdateUserDto, ResetPasswordDto, CreateBenefitDto } from './admin.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('SYSTEM_ADMIN')
 export class AdminController {
     constructor(private readonly adminService: AdminService) { }
+
+
+
+    @Get('benefits')
+    async listBenefits() {
+        return this.adminService.listBenefits();
+    }
+
+    @Post('benefits')
+    async createBenefit(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateBenefitDto) {
+        return this.adminService.createBenefit(user.sub, body);
+    }
+
+    @Delete('benefits/:id')
+    async deleteBenefit(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+        return this.adminService.deleteBenefit(user.sub, id);
+    }
 
     @Get('users')
     async listUsers() {
