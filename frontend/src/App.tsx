@@ -49,11 +49,26 @@ function useAuth() {
 }
 
 /* ── API Helpers ─── */
+function extractErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== 'object') return fallback;
+  const message = (payload as { message?: unknown }).message;
+  if (Array.isArray(message)) {
+    const text = message.filter(item => typeof item === 'string').join(' ');
+    return text || fallback;
+  }
+  if (typeof message === 'string') return message;
+  return fallback;
+}
+
 function useApi(authToken: string) {
   return useMemo(() => ({
     get: async (path: string) => {
       const r = await fetch(`${apiBase}${path}`, { headers: { Authorization: `Bearer ${authToken}` } });
-      if (!r.ok) throw new Error(`GET ${path} failed`);
+      if (!r.ok) {
+        let payload: unknown = null;
+        try { payload = await r.json(); } catch { payload = null; }
+        throw new Error(extractErrorMessage(payload, `GET ${path} failed`));
+      }
       return r.json();
     },
     post: async (path: string, body?: Record<string, unknown>) => {
@@ -62,7 +77,11 @@ function useApi(authToken: string) {
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined
       });
-      if (!r.ok) throw new Error(`POST ${path} failed`);
+      if (!r.ok) {
+        let payload: unknown = null;
+        try { payload = await r.json(); } catch { payload = null; }
+        throw new Error(extractErrorMessage(payload, `POST ${path} failed`));
+      }
       return r.json();
     },
     patch: async (path: string, body?: Record<string, unknown>) => {
@@ -71,7 +90,11 @@ function useApi(authToken: string) {
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined
       });
-      if (!r.ok) throw new Error(`PATCH ${path} failed`);
+      if (!r.ok) {
+        let payload: unknown = null;
+        try { payload = await r.json(); } catch { payload = null; }
+        throw new Error(extractErrorMessage(payload, `PATCH ${path} failed`));
+      }
       return r.json();
     },
     del: async (path: string) => {
@@ -79,7 +102,11 @@ function useApi(authToken: string) {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` }
       });
-      if (!r.ok) throw new Error(`DELETE ${path} failed`);
+      if (!r.ok) {
+        let payload: unknown = null;
+        try { payload = await r.json(); } catch { payload = null; }
+        throw new Error(extractErrorMessage(payload, `DELETE ${path} failed`));
+      }
       return r.json();
     }
   }), [authToken]);
@@ -343,7 +370,10 @@ function MyRequests() {
       setShowCreate(false);
       setForm({ categoryId: '', reason: '', currency: 'EUR', totalAmount: '', invoiceNumber: '', invoiceDate: '', supplier: '' });
       load();
-    } catch { setFormError('Unable to create request.'); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create request.';
+      setFormError(message);
+    }
     finally { setSaving(false); }
   };
 

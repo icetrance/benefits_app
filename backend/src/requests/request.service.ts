@@ -105,8 +105,17 @@ export class RequestService {
         }
       });
 
-      if (!budget || budget.spent >= budget.allocated) {
-        throw new BadRequestException('Budget exhausted for selected benefit category');
+      if (!budget) {
+        throw new BadRequestException(
+          `Cannot create benefit request for "${category.name}": no budget allocation exists for ${currentYear}.`,
+        );
+      }
+
+      if (budget.spent >= budget.allocated) {
+        const remaining = Math.max(budget.allocated - budget.spent, 0);
+        throw new BadRequestException(
+          `Cannot create benefit request for "${category.name}": budget exhausted (spent €${budget.spent.toFixed(2)} of €${budget.allocated.toFixed(2)}, remaining €${remaining.toFixed(2)}).`,
+        );
       }
     }
 
